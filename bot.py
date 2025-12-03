@@ -8,7 +8,13 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()  # Load .env file
-BOT_TOKEN = os.getenv("BOT_TOKE")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+intents = discord.Intents.default()
+intents.guilds = True
+intents.members = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ---------------- CONFIG ----------------
 STAFF_ROLE_IDS = [
