@@ -1,8 +1,10 @@
 # bot.py
-import os
-from dotenv import load_dotenv
 import discord
 from discord.ext import commands
+from discord import app_commands
+
+import os
+from dotenv import load_dotenv
 
 load_dotenv()  # Load .env file
 BOT_TOKEN = os.getenv("BOT_TOKEN")
