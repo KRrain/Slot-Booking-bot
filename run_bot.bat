@@ -17,7 +17,7 @@ goto menu
 
 :startbot
 echo Starting Discord Booking Bot...
-python slot_booking_bot.py
+python bot.py
 echo Bot stopped. Returning to menu...
 pause
 goto menu
