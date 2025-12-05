@@ -1,15 +1,13 @@
 # bot.py
-import re
-import traceback
-from datetime import datetime
-
-import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 import os
 from dotenv import load_dotenv
+
+load_dotenv()  # Load .env file
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # ---------------- CONFIG ----------------
 load_dotenv()  # Load .env file
@@ -115,108 +113,72 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
 
     def __init__(self, message_id: int):
         super().__init__()
-        self.message_id = message_id
+        self.guild_id = guild_id
+        slots_dict = booking_messages.get(guild_id, {}).get("slots", {})
+        available_slots = [s for s, v in slots_dict.items() if not v]
 
-        data = booking_messages.get(message_id)
-        slots_dict = (data or {}).get("slots", {})
-        available = [s.replace("Slot ", "") for s, v in slots_dict.items() if not v]
-
-        # Show available numbers (shortened if long)
-        if available:
-            preview = ", ".join(available[:10])
-            if len(available) > 10:
-                preview += ", ..."
-            placeholder = f"Available: {preview}"
-            if len(placeholder) > 100:
-                placeholder = placeholder[:97] + "..."
-            self.slot_number.placeholder = placeholder
+        if available_slots:
+            # Only show first 10 slots in placeholder to avoid exceeding 100 chars
+            display_slots = ", ".join(available_slots[:10])
+            if len(available_slots) > 10:
+                display_slots += ", ..."
+            self.slot_numbers.placeholder = f"Available slots: {display_slots}"
         else:
-            self.slot_number.placeholder = "No slots available."
+            self.slot_numbers.placeholder = "No slots available currently."
 
     async def on_submit(self, interaction: discord.Interaction):
-        try:
-            msg_id = self.message_id
-            data = booking_messages.get(msg_id)
+        slots_dict = booking_messages.get(self.guild_id, {}).get("slots", {})
+        if not slots_dict:
+            await interaction.response.send_message("❌ Booking data not found.", ephemeral=True)
+            return
 
-            if not data:
-                return await interaction.response.send_message(
-                    "❌ Booking data not found.", ephemeral=True
-                )
+        requested_slots = [s.strip().capitalize() for s in self.slot_numbers.value.split(",") if s.strip()]
+        if not requested_slots:
+            await interaction.response.send_message("❌ You must enter at least one slot.", ephemeral=True)
+            return
 
-            slots_dict = data["slots"]
+        if self.guild_id not in user_submissions:
+            user_submissions[self.guild_id] = {}
+        user_slots = user_submissions[self.guild_id].get(interaction.user.id, set())
+        for slot in requested_slots:
+            if slot in user_slots:
+                await interaction.response.send_message(f"❌ You already submitted slot `{slot}`.", ephemeral=True)
+                return
+            if slot not in slots_dict:
+                await interaction.response.send_message(f"❌ Slot `{slot}` does not exist.", ephemeral=True)
+                return
+            if slots_dict[slot]:
+                await interaction.response.send_message(f"❌ Slot `{slot}` is already Booked.", ephemeral=True)
+                return
 
-            # Validate number input
-            raw = self.slot_number.value.strip()
-
-            if not raw.isdigit():
-                return await interaction.response.send_message(
-                    "❌ Slot number must be a **number only**, like `1`.",
-                    ephemeral=True,
-                )
-
-            slot_id = int(raw)
-            slot_name = f"Slot {slot_id}"
-
-            if slot_name not in slots_dict:
-                return await interaction.response.send_message(
-                    f"❌ Slot `{raw}` does not exist.",
-                    ephemeral=True,
-                )
-
-            if slots_dict[slot_name]:
-                return await interaction.response.send_message(
-                    f"❌ Slot `{raw}` is already booked.",
-                    ephemeral=True,
-                )
-
-            guild_id = interaction.guild_id
-            user_id = interaction.user.id
-
-            if guild_id not in user_submissions:
-                user_submissions[guild_id] = {}
-
-            # Prevent duplicate request
-            if (
-                user_id in user_submissions[guild_id]
-                and slot_name in user_submissions[guild_id][user_id]
-            ):
-                return await interaction.response.send_message(
-                    f"❌ You already submitted slot `{raw}`.",
-                    ephemeral=True,
-                )
-
-            # Save user request
-            user_submissions[guild_id].setdefault(user_id, set()).add(slot_name)
+        if interaction.user.id not in user_submissions[self.guild_id]:
+            user_submissions[self.guild_id][interaction.user.id] = set()
+        user_submissions[self.guild_id][interaction.user.id].update(requested_slots)
 
             await interaction.response.send_message(
                 f"✅ Request submitted for slot **{slot_id}**",
                 ephemeral=True,
             )
 
-            # Log to staff
-            log_channel = bot.get_channel(STAFF_LOG_CHANNEL_ID)
-            if log_channel:
-                embed = discord.Embed(
-                    title="📥 Slot Booking Request",
-                    color=discord.Color.orange(),
-                )
-                embed.add_field(
-                    name="User", value=interaction.user.mention, inline=False
-                )
-                embed.add_field(
-                    name="VTC Name", value=self.vtc_name.value, inline=False
-                )
-                embed.add_field(name="Slot Number", value=str(slot_id), inline=False)
-                embed.set_footer(text="Waiting for staff action")
+        log_channel = bot.get_channel(STAFF_LOG_CHANNEL_ID)
+        if not log_channel:
+            return
 
-                view = ApproveDenyView(
-                    user_id=user_id,
-                    vtc_name=self.vtc_name.value,
-                    slot_number=slot_name,
-                    message_id=msg_id,
-                    guild_id=guild_id,
-                )
-                await log_channel.send(embed=embed, view=view)
+        for slot in requested_slots:
+            embed = discord.Embed(title="📥 Slot Booking Request", color=discord.Color.orange())
+            embed.add_field(name="User", value=interaction.user.mention, inline=False)
+            embed.add_field(name="VTC Name", value=self.vtc_name.value, inline=False)
+            embed.add_field(name="Slot Number", value=slot, inline=False)
+            embed.set_footer(text="Waiting for staff action")
+            view = ApproveDenyView(
+                user_id=interaction.user.id,
+                vtc_name=self.vtc_name.value,
+                slot_number=slot,
+                guild_id=self.guild_id,
+                approved=False,
+                denied=False
+            )
+            await log_channel.send(embed=embed, view=view)
 
         except Exception:
             traceback.print_exc()
@@ -340,10 +302,10 @@ class ApproveDenyView(discord.ui.View):
                     "❌ Slot already approved.", ephemeral=True
                 )
 
-            # Approve
-            slots_dict[self.slot_number] = self.vtc_name
-            if self.user_id in user_submissions.get(self.guild_id, {}):
-                user_submissions[self.guild_id][self.user_id].discard(self.slot_number)
+        for slot in self.slot_number:
+            slots_dict[slot] = self.vtc_name
+
+        user_submissions[self.guild_id][self.user_id].difference_update(self.slot_number)
 
             # Update main embed (first embed of that message)
             original_msg = data["message"]
@@ -388,8 +350,8 @@ class ApproveDenyView(discord.ui.View):
                     "❌ You are not staff.", ephemeral=True
                 )
 
-            if self.user_id in user_submissions.get(self.guild_id, {}):
-                user_submissions[self.guild_id][self.user_id].discard(self.slot_number)
+        if self.user_id in user_submissions.get(self.guild_id, {}):
+            user_submissions[self.guild_id][self.user_id].difference_update(self.slot_number)
 
             embed = interaction.message.embeds[0]
             embed.color = discord.Color.red()
@@ -428,29 +390,25 @@ class ApproveDenyView(discord.ui.View):
                     ephemeral=True,
                 )
 
-            slots_dict = data["slots"]
+        slots_dict = data["slots"]
+        removed_slots = []
 
-            if not slots_dict.get(self.slot_number):
-                return await interaction.response.send_message(
-                    "❌ Slot is not approved.", ephemeral=True
-                )
+        for slot in self.slot_number:
+            if slot in slots_dict and slots_dict[slot]:
+                slots_dict[slot] = None
+                removed_slots.append(slot)
 
-            slots_dict[self.slot_number] = None
+        if not removed_slots:
+            return await interaction.response.send_message("❌ No approved slots to remove.", ephemeral=True)
 
-            # Update main embed
-            original_msg = data["message"]
-            if not original_msg.embeds:
-                return await interaction.response.send_message(
-                    "❌ Original booking embed is missing.",
-                    ephemeral=True,
-                )
+        if self.user_id in user_submissions.get(self.guild_id, {}):
+            user_submissions[self.guild_id][self.user_id].difference_update(self.slot_number)
 
-            new_embed = original_msg.embeds[0]
-            updated_lines = [
-                f"{s} - {v} ✅" if v else s for s, v in slots_dict.items()
-            ]
-            new_embed.description = "\n".join(updated_lines)
-            await original_msg.edit(embed=new_embed)
+        original_msg = data["message"]
+        updated_lines = [f"{s}: {v} ✅" if v else f"{s}" for s, v in slots_dict.items()]
+        new_embed = original_msg.embeds[0]
+        new_embed.description = "\n".join(updated_lines)
+        await original_msg.edit(embed=new_embed)
 
             await self._notify_user(False)
             await interaction.response.send_message(
