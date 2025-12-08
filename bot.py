@@ -616,8 +616,8 @@ async def mark(interaction: discord.Interaction, event_link: str):
 
     # Embed with color #FF5A20
     embed = discord.Embed(
-        title="Mark Your Attendance",
-        description="Plz Kindly Mark Your Attendance On This Event : ❤️",
+        title="<:NepPathLogocircledim:1395694322061410334> Mark Your Attendance",
+        description="<@&1398294285597671606> /n Plz Kindly Mark Your Attendance On This Event : ❤️",
         color=discord.Color(0xFF5A20),
     )
     embed.add_field(
