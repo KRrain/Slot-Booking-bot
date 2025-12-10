@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("BOT_TOKEN")
 VTC_ROLE_ID = int(os.getenv("VTC_ROLE_ID"))
 GUILD_ID = os.getenv("GUILD_ID")
 if GUILD_ID:
