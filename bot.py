@@ -1,4 +1,4 @@
-# main.py - NepPath Nepal VTC Bot | Fixed Imports & Custom Pagination
+# main.py – NepPath VTC Bot | Fully Fixed (No More Errors)
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -22,207 +22,130 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
 
-# ===== ATTENDANCE SYSTEM =====
+# ===== ATTENDANCE =====
 class AttendanceModal(discord.ui.Modal, title="Mark Attendance"):
-    event_name = discord.ui.TextInput(
-        label="Event Name",
-        placeholder="e.g. INDIAN CARRIERS FEBRUARY CONVOY",
-        required=True,
-        max_length=100
-    )
+    event_name = discord.ui.TextInput(label="Event Name", placeholder="e.g. INDIAN CARRIERS CONVOY", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-            title="Attendance Marked!",
-            description=f"Plz Kindly Mark Your Attendance On This Event :\n\n**{self.event_name.value}** ❤️",
-            color=0xFF4500
-        )
+        embed = discord.Embed(title="Attendance Marked!", color=0xFF4500)
+        embed.description = f"**{self.event_name.value}** (Heart)\nPlz Kindly Mark Your Attendance On This Event"
         embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
-        embed.set_image(url="https://i.imgur.com/ScaniaDuo.jpg")  # Replace with your convoy image
-        embed.set_footer(text="Doing what we do best! • NepPath Nepal")
-        embed.timestamp = datetime.utcnow()
-
-        view = discord.ui.View()
-        view.add_item(discord.ui.Button(label="I Will Be There", style=discord.ButtonStyle.red, emoji="❤️", disabled=True))
+        embed.set_image(url="https://i.imgur.com/ScaniaDuo.jpg")
+        embed.set_footer(text="NepPath Nepal • Doing what we do best!")
         await interaction.response.send_message(embed=embed, ephemeral=False)
 
 class AttendanceView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+    @discord.ui.button(label='Go-To "I Will Be There"', style=discord.ButtonStyle.red, emoji="(Heart)")
+    async def btn(self, i: discord.Interaction, b):
+        await i.response.send_modal(AttendanceModal())
 
-    @discord.ui.button(label='Go-To Hit "I Will Be There"', style=discord.ButtonStyle.red, emoji="❤️")
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(AttendanceModal())
-
-# ===== ON READY =====
 @bot.event
 async def on_ready():
-    print(f"NepPath Bot Online → {bot.user} ({bot.user.id})")
+    print(f"NepPath Bot Ready → {bot.user}")
     await tree.sync()
     bot.add_view(AttendanceView())
-    print("Slash commands synced. Bot is fully ready!")
+    print("Bot fully online!")
 
-# ===== /ANNOUNCEMENT =====
-@tree.command(name="announcement", description="Latest NepPath announcement")
-async def announcement(interaction: discord.Interaction):
-    await interaction.response.defer()
+# ===== COMMANDS =====
+@tree.command(name="announcement", description="Latest announcement")
+async def announcement(i: discord.Interaction):
+    await i.response.defer()
     feed = feedparser.parse(RSS_URL)
     if not feed.entries:
-        await interaction.followup.send("No announcements found.")
+        await i.followup.send("No announcements.")
         return
-    latest = feed.entries[0]
-    embed = discord.Embed(
-        title="Latest Announcement",
-        description=latest.summary[:1500],
-        url=latest.link,
-        color=0xFF4500
-    )
-    embed.set_author(name="NepPath Management")
+    e = feed.entries[0]
+    embed = discord.Embed(title="Latest Announcement", description=e.summary[:1500], url=e.link, color=0xFF4500)
     embed.set_thumbnail(url="https://truckersmp.com/storage/vtc/81586/logo.png")
-    embed.timestamp = datetime(*latest.published_parsed[:6])
-    await interaction.followup.send(embed=embed)
+    await i.followup.send(embed=embed)
 
-# ===== /MARK_ATTENDANCE =====
-@tree.command(name="mark_attendance", description="Mark attendance like the app!")
-async def mark_attendance(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="Mark Your Attendance",
-        description="Plz Kindly Mark Your Attendance On This Event : ❤️",
-        color=0x8B4513
-    )
-    embed.set_image(url="https://i.imgur.com/ScaniaDuo.jpg")  # Your convoy image
-    embed.set_footer(text="NepPath Nepal • Public Convoy Series")
-    await interaction.response.send_message(embed=embed, view=AttendanceView())
+@tree.command(name="mark_attendance", description="Mark attendance like the app")
+async def mark_attendance(i: discord.Interaction):
+    embed = discord.Embed(title="Mark Your Attendance", description="Plz Kindly Mark Your Attendance On This Event : (Heart)", color=0x8B4513)
+    embed.set_image(url="https://i.imgur.com/ScaniaDuo.jpg")
+    await i.response.send_message(embed=embed, view=AttendanceView())
 
-# ===== /UPCOMING_EVENTS =====
-@tree.command(name="upcoming_events", description="Events NepPath is attending")
-async def upcoming_events(interaction: discord.Interaction):
-    await interaction.response.defer()
-    try:
-        r = requests.get(f"{API_BASE}/vtc/{VTC_ID}/events/attending", timeout=10)
-        data = r.json()
-        if not data.get("response"):
-            await interaction.followup.send("No upcoming events.")
-            return
-        embed = discord.Embed(title="Upcoming Events (Attending)", color=0x00FF00)
-        for e in data["response"][:8]:
-            start = datetime.fromisoformat(e["startDate"].replace("Z", "+00:00"))
-            embed.add_field(
-                name=e["name"],
-                value=f"**{start.strftime('%d %B %Y - %H:%M UTC')}**\nServer: {e.get('serverName', 'TBD')}",
-                inline=False
-            )
-        embed.set_thumbnail(url="https://truckersmp.com/storage/vtc/81586/logo.png")
-        await interaction.followup.send(embed=embed)
-    except Exception as ex:
-        await interaction.followup.send(f"Error fetching events: {ex}")
+@tree.command(name="upcoming_events", description="Events we're attending")
+async def upcoming_events(i: discord.Interaction):
+    await i.response.defer()
+    data = requests.get(f"{API_BASE}/vtc/{VTC_ID}/events/attending").json()
+    if not data.get("response"):
+        await i.followup.send("No upcoming events.")
+        return
+    embed = discord.Embed(title="Upcoming Events (Attending)", color=0x00FF00)
+    for e in data["response"][:8]:
+        start = datetime.fromisoformat(e["startDate"].replace("Z", "+00:00"))
+        embed.add_field(name=e["name"], value=start.strftime("%d %B %Y - %H:%M UTC"), inline=False)
+    await i.followup.send(embed=embed)
 
-# ===== /UPCOMING =====
-@tree.command(name="upcoming", description="All upcoming NepPath events")
-async def upcoming(interaction: discord.Interaction):
-    await interaction.response.defer()
-    try:
-        r = requests.get(f"{API_BASE}/vtc/{VTC_ID}/events", timeout=10)
-        data = r.json()
-        if not data.get("response"):
-            await interaction.followup.send("No events.")
-            return
-        embed = discord.Embed(title="All Upcoming NepPath Events", color=0xFF4500)
-        for e in data["response"][:8]:
-            start = datetime.fromisoformat(e["startDate"].replace("Z", "+00:00"))
-            embed.add_field(
-                name=e["name"],
-                value=start.strftime('%d %B %Y - %H:%M UTC'),
-                inline=False
-            )
-        await interaction.followup.send(embed=embed)
-    except Exception as ex:
-        await interaction.followup.send(f"Error: {ex}")
-
-# ===== /VTC_MEMBERS WITH CUSTOM PAGINATION =====
+# ===== FIXED VTC_MEMBERS (Handles dict AND list) =====
 @tree.command(name="vtc_members", description="Full member list with join dates")
 async def vtc_members(interaction: discord.Interaction):
     await interaction.response.defer()
 
     try:
-        # Fetch data
-        info_r = requests.get(f"{API_BASE}/vtc/{VTC_ID}", timeout=10)
-        info = info_r.json()["response"]
+        # Get VTC info
+        info = requests.get(f"{API_BASE}/vtc/{VTC_ID}").json()["response"]
         total = info.get("memberCount", "N/A")
         founded = info.get("creationDate", "N/A")[:10]
 
-        members_r = requests.get(f"{API_BASE}/vtc/{VTC_ID}/members", timeout=10)
-        members_data = members_r.json()
-        if not members_data.get("response"):
-            await interaction.followup.send("Failed to load members.")
+        # Get members (can be dict or list!)
+        raw = requests.get(f"{API_BASE}/vtc/{VTC_ID}/members").json()
+        members_data = raw.get("response", {})
+
+        # Convert dict → list if needed
+        if isinstance(members_data, dict):
+            members = list(members_data.values()) if members_data else []
+        else:
+            members = members_data if isinstance(members_data, list) else []
+
+        if not members:
+            await interaction.followup.send("No members found.")
             return
 
-        members = members_data["response"]
-        members.sort(key=lambda x: x.get("joinDate", "9999-99-99"))  # Oldest first
+        # Sort by join date (oldest first)
+        members = sorted(members, key=lambda x: x.get("joinDate", "9999-99-99") or "9999-99-99")
 
-        # Pagination setup (8 per page)
         per_page = 8
         pages = [members[i:i + per_page] for i in range(0, len(members), per_page)]
-        current_page = 0
+        current = 0
 
-        def create_embed(page_num):
-            embed = discord.Embed(
-                title="NepPath Nepal VTC Members",
-                description=f"**Total Drivers:** {total}\n**Founded:** {founded}\n\n**Member List:**",
-                color=0xFF4500
-            )
+        def make_embed(page):
+            embed = discord.Embed(title="NepPath Nepal VTC Members", color=0xFF4500)
+            embed.description = f"**Total:** {total} drivers | **Founded:** {founded}"
             embed.set_thumbnail(url="https://truckersmp.com/storage/vtc/81586/logo.png")
-            embed.set_footer(text=f"Page {page_num + 1}/{len(pages)} • NepPath Nepal")
-
-            page_members = pages[page_num]
-            for m in page_members:
-                user = m.get("user", {})
-                name = user.get("username", "Unknown")
-                join = m.get("joinDate", "Unknown")[:10]
-                role = m.get("role", {}).get("name", "Driver")
-
-                # Simple role emoji
-                role_emoji = "👑" if "owner" in role.lower() else "🛡️" if "manager" in role.lower() else "🎉" if "event" in role.lower() else "🚛"
-                
-                embed.add_field(
-                    name=f"{role_emoji} {name}",
-                    value=f"**Joined:** {join}\n**Role:** {role}",
-                    inline=False
-                )
+            for m in pages[page]:
+                name = m["user"]["username"]
+                join = (m.get("joinDate") or "")[:10]
+                role = m["role"]["name"]
+                emoji = "Crown" if "owner" in role.lower() else "Shield" if "manager" in role.lower() else "Party" if "event" in role.lower() else "Truck"
+                embed.add_field(name=f"{emoji} {name}", value=f"**Joined:** {join}\n**Role:** {role}", inline=False)
+            embed.set_footer(text=f"Page {page+1}/{len(pages)}")
             return embed
 
-        # Initial message
-        msg = await interaction.followup.send(embed=create_embed(current_page))
-
-        # Custom pagination view
-        class MemberPaginator(discord.ui.View):
-            def __init__(self):
-                super().__init__(timeout=300)  # 5 min timeout
-                self.current_page = 0
-
-            @discord.ui.button(label="◀ Previous", style=discord.ButtonStyle.grey)
-            async def previous(self, interaction: discord.Interaction, button: discord.ui.Button):
-                if self.current_page > 0:
-                    self.current_page -= 1
-                    await interaction.response.edit_message(embed=create_embed(self.current_page))
-
-            @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.grey)
-            async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-                if self.current_page < len(pages) - 1:
-                    self.current_page += 1
-                    await interaction.response.edit_message(embed=create_embed(self.current_page))
-
-            @discord.ui.button(label="Stop", style=discord.ButtonStyle.red)
-            async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
-                self.stop()
-                await interaction.response.edit_message(view=None)
+        msg = await interaction.followup.send(embed=make_embed(0))
 
         if len(pages) > 1:
-            await msg.edit(view=MemberPaginator())
-        # For single page, no view needed
+            class View(discord.ui.View):
+                @discord.ui.button(label="Previous", style=discord.ButtonStyle.grey)
+                async def prev(self, i: discord.Interaction, b):
+                    nonlocal current
+                    if current > 0:
+                        current -= 1
+                        await i.response.edit_message(embed=make_embed(current))
+
+                @discord.ui.button(label="Next", style=discord.ButtonStyle.grey)
+                async def next(self, i: discord.Interaction, b):
+                    nonlocal current
+                    if current < len(pages)-1:
+                        current += 1
+                        await i.response.edit_message(embed=make_embed(current))
+
+            await msg.edit(view=View(timeout=300))
 
     except Exception as e:
-        await interaction.followup.send(f"Error loading members: {e}")
+        await interaction.followup.send(f"Error: {str(e)}")
 
-# ===== START BOT =====
 bot.run(BOT_TOKEN)
