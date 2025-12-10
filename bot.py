@@ -7,8 +7,11 @@ load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
 VTC_ROLE_ID = int(os.getenv("VTC_ROLE_ID"))
-GUILD_ID = int(os.getenv("GUILD_ID")) if os.getenv("GUILD_ID") else None
+GUILD_ID = os.getenv("GUILD_ID")
+if GUILD_ID:
+    GUILD_ID = int(GUILD_ID)
 
+# Intents
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
@@ -18,79 +21,69 @@ tree = app_commands.CommandTree(client)
 
 @client.event
 async def on_ready():
-    print(f"Logged in as {client.user} (ID: {client.user.id})")
-    print("Syncing slash commands...")
-
-    if GUILD_ID:
-        guild = discord.Object(id=GUILD_ID)
-        tree.copy_global_to(guild=guild)
-        await tree.sync(guild=guild)
-        print(f"Commands synced to guild {GUILD_ID} (instant)")
-    else:
-        await tree.sync()
-        print("Commands synced globally (may take up to 1 hour)")
-
-    print("Bot is ready!")
+    print(f"Bot connected as {client.user}")
+    await tree.sync(guild=discord.Object(id=GUILD_ID) if GUILD_ID else None)
+    print("Slash commands synced ✓")
+    print("Bot is ready and stable!")
 
 
 @tree.command(name="vtc", description="VTC Commands")
-@app_commands.subcommand(name="members", description="Show all VTC members")
-async def vtc_members(interaction: discord.Interaction):
+@app_commands.describe()
+async def vtc(interaction: discord.Interaction):
+    pass  # parent command
+
+
+@vtc.command(name="members", description="Show full VTC member list")
+async def members(interaction: discord.Interaction):
     await interaction.response.defer()
 
-    if VTC_ROLE_ID not in [role.id for role in interaction.guild.roles]:
-        await interaction.followup.send("Error: VTC role ID is invalid or role doesn't exist.")
+    # Safety check
+    role = interaction.guild.get_role(VTC_ROLE_ID)
+    if not role:
+        await interaction.followup.send("❌ VTC role not found. Check VTC_ROLE_ID in Zeabur variables.")
         return
 
-    # Fetch all members (important for large servers)
-    await interaction.guild.chunk()
+    # Fetch members safely
+    members_with_role = [m for m in interaction.guild.members if role in m.roles]
 
-    vtc_members = [m for m in interaction.guild.members if VTC_ROLE_ID in [r.id for r in m.roles]]
-
-    if m.roles]
-
-    if not vtc_members:
-        await interaction.followup.send("No members found with the VTC role.")
+    if not members_with_role:
+        await interaction.followup.send("🚛 No VTC members found.")
         return
 
-    # Sort by display name
-    vtc_members.sort(key=lambda m: m.display_name.lower())
+    # Sort alphabetically
+    members_with_role.sort(key=lambda m: m.display_name.lower())
 
+    # Build list with status
     lines = []
-    for member in vtc_members:
+    for member in members_with_role:
         status = member.status
         emoji = "🟢" if status == discord.Status.online else \
                 "🟡" if status == discord.Status.idle else \
                 "🔴" if status == discord.Status.dnd else "⚫"
-        lines.append(f"{emoji} **{member.display_name}** (`{member}`)")
+        lines.append(f"{emoji} **{discord.utils.escape_markdown(member.display_name)}** ({member})")
 
-    description = "\n".join(lines)
-
+    # Split into multiple embeds if too long
     embeds = []
-    title = f"🚛 VTC Members ({len(vtc_members)})"
-    
-    # Split if too long for one embed
-    while description:
-        chunk = description[:4000]  # leave room for ```
-        # Find last newline to avoid cutting words
-        if len(description) > 4000:
-            cut = chunk.rfind("\n")
-            chunk = chunk[:cut]
-            description = description[cut+1:]
-        else:
-            description = ""
-
+    chunk_size = 25  # ~25 members per embed looks clean
+    for i in range(0, len(lines), chunk_size):
+        chunk = "\n".join(lines[i:i + chunk_size])
         embed = discord.Embed(
-            title=title if not embeds else "Continued...",
-            description=chunk or "*No more members*",
+            title="VTC Members" if i == 0 else "VTC Members (continued)",
+            description=chunk,
             color=0x00ff00
         )
-        embed.set_footer(text=f"Requested by {interaction.user}", icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
+        embed.set_footer(text=f"Total: {len(members_with_role)} • Requested by {interaction.user}",
+                         icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
         embed.timestamp = discord.utils.utcnow()
         embeds.append(embed)
 
     await interaction.followup.send(embeds=embeds)
 
 
-# Run the bot
-client.run(TOKEN)
+# Start bot
+try:
+    client.run(TOKEN)
+except discord.LoginFailure:
+    print("Invalid bot token! Check TOKEN in Zeabur variables.")
+except Exception as e:
+    print(f"Failed to start: {e}")
