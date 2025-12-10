@@ -1,109 +1,96 @@
+import os
 import discord
 from discord import app_commands
-from discord.ui import Modal, TextInput
-from discord.ext import commands
-import aiohttp
-import os
-from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+TOKEN = os.getenv("TOKEN")
+VTC_ROLE_ID = int(os.getenv("VTC_ROLE_ID"))
+GUILD_ID = int(os.getenv("GUILD_ID")) if os.getenv("GUILD_ID") else None
 
 intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)  # This already has .tree
+intents.guilds = True
+intents.members = True
 
-# TruckersMP API URLs
-TMP_PLAYER_API = "https://api.truckersmp.com/v2/player/"
-TMP_VTC_API = "https://api.truckersmp.com/v2/vtc/"
-TMP_BANS_API = "https://api.truckersmp.com/v2/bans/"
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 
-class VTCIDModal(Modal, title="Enter Your VTC ID"):
-    vtc_id = TextInput(
-        label="VTC ID",
-        placeholder="e.g. 1234",
-        required=True,
-        style=discord.TextInputStyle.short
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        
-        try:
-            vtc_id_num = int(self.vtc_id.value.strip())
-        except ValueError:
-            await interaction.followup.send("❌ Invalid VTC ID. Must be a number.", ephemeral=True)
-            return
-
-        async with aiohttp.ClientSession() as session:
-            # Fetch VTC data
-            vtc_url = f"{TMP_VTC_API}{vtc_id_num}"
-            async with session.get(vtc_url) as resp:
-                if resp.status != 200:
-                    await interaction.followup.send("❌ Failed to fetch VTC. Check the ID.", ephemeral=True)
-                    return
-                vtc_data = await resp.json()
-
-            if vtc_data.get("error"):
-                await interaction.followup.send(f"❌ TruckersMP API Error: {vtc_data.get('descriptor', 'Unknown')}", ephemeral=True)
-                return
-
-            members = vtc_data["response"].get("members", [])
-            if not members:
-                await interaction.followup.send("ℹ️ This VTC has no members or is private.", ephemeral=True)
-                return
-
-            embed = discord.Embed(
-                title=f"{vtc_data['response']['name']} Members",
-                description=f"Total: {len(members)} | [View on TruckersMP](https://truckersmp.com/vtc/{vtc_id_num})",
-                color=0x00ff00,
-                timestamp=datetime.utcnow()
-            )
-            logo = vtc_data["response"].get("logo")
-            if logo:
-                embed.set_thumbnail(url=logo)
-
-            shown = min(15, len(members))
-            for member in members[:shown]:
-                player_id = member["id"]
-                name = member["username"]
-                role = member["role"]
-                vtc_join = member.get("join_date", "N/A")[:10]
-
-                # Player details
-                async with session.get(f"{TMP_PLAYER_API}{player_id}") as p_resp:
-                    p_data = await p_resp.json() if p_resp.status == 200 else {}
-                    player = p_data.get("response", {})
-
-                # Bans
-                async with session.get(f"{TMP_BANS_API}{player_id}") as b_resp:
-                    b_data = await b_resp.json() if b_resp.status == 200 else {}
-                    ban_count = len(b_data.get("response", []))
-
-                details = (
-                    f"**Role:** {role}\n"
-                    f"**TMP ID:** {player.get('id', 'N/A')}\n"
-                    f"**Steam ID:** {player.get('steamID64', 'N/A')}\n"
-                    f"**Joined TMP:** {player.get('joinDate', 'N/A')[:10]}\n"
-                    f"**Joined VTC:** {vtc_join}\n"
-                    f"**Bans:** {ban_count}"
-                )
-
-                embed.add_field(name=name, value=details, inline=False)
-
-            if len(members) > shown:
-                embed.set_footer(text=f"Showing first {shown} of {len(members)} members")
-
-            await interaction.followup.send(embed=embed)
-
-# Use bot.tree instead of a separate tree
-@bot.tree.command(name="vtc_members", description="Fetch members of a TruckersMP VTC")
-async def vtc_members(interaction: discord.Interaction):
-    await interaction.response.send_modal(VTCIDModal())
-
-@bot.event
+@client.event
 async def on_ready():
-    await bot.tree.sync()  # Sync using bot.tree
-    print(f"🚀 Bot is online as {bot.user} | Slash commands synced")
+    print(f"Logged in as {client.user} (ID: {client.user.id})")
+    print("Syncing slash commands...")
 
-bot.run(BOT_TOKEN)
+    if GUILD_ID:
+        guild = discord.Object(id=GUILD_ID)
+        tree.copy_global_to(guild=guild)
+        await tree.sync(guild=guild)
+        print(f"Commands synced to guild {GUILD_ID} (instant)")
+    else:
+        await tree.sync()
+        print("Commands synced globally (may take up to 1 hour)")
+
+    print("Bot is ready!")
+
+
+@tree.command(name="vtc", description="VTC Commands")
+@app_commands.subcommand(name="members", description="Show all VTC members")
+async def vtc_members(interaction: discord.Interaction):
+    await interaction.response.defer()
+
+    if VTC_ROLE_ID not in [role.id for role in interaction.guild.roles]:
+        await interaction.followup.send("Error: VTC role ID is invalid or role doesn't exist.")
+        return
+
+    # Fetch all members (important for large servers)
+    await interaction.guild.chunk()
+
+    vtc_members = [m for m in interaction.guild.members if VTC_ROLE_ID in [r.id for r in m.roles]]
+
+    if m.roles]
+
+    if not vtc_members:
+        await interaction.followup.send("No members found with the VTC role.")
+        return
+
+    # Sort by display name
+    vtc_members.sort(key=lambda m: m.display_name.lower())
+
+    lines = []
+    for member in vtc_members:
+        status = member.status
+        emoji = "🟢" if status == discord.Status.online else \
+                "🟡" if status == discord.Status.idle else \
+                "🔴" if status == discord.Status.dnd else "⚫"
+        lines.append(f"{emoji} **{member.display_name}** (`{member}`)")
+
+    description = "\n".join(lines)
+
+    embeds = []
+    title = f"🚛 VTC Members ({len(vtc_members)})"
+    
+    # Split if too long for one embed
+    while description:
+        chunk = description[:4000]  # leave room for ```
+        # Find last newline to avoid cutting words
+        if len(description) > 4000:
+            cut = chunk.rfind("\n")
+            chunk = chunk[:cut]
+            description = description[cut+1:]
+        else:
+            description = ""
+
+        embed = discord.Embed(
+            title=title if not embeds else "Continued...",
+            description=chunk or "*No more members*",
+            color=0x00ff00
+        )
+        embed.set_footer(text=f"Requested by {interaction.user}", icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
+        embed.timestamp = discord.utils.utcnow()
+        embeds.append(embed)
+
+    await interaction.followup.send(embeds=embeds)
+
+
+# Run the bot
+client.run(TOKEN)
