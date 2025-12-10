@@ -1,3 +1,3 @@
-├── main.py
-├── requirements.txt
-└── .env
+bot.py
+requirements.txt
+Dockerfile
