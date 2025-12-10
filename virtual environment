@@ -1,1 +1,7 @@
+# Activate your venv first (if you use one)
+# Windows:
 venv\Scripts\activate
+# Linux/Mac:
+source venv/bin/activate
+
+pip install requests
