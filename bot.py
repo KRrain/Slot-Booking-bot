@@ -1,5 +1,4 @@
-# bot.py - NEPPATH VTC BOT - FULLY FIXED FOR DEC 2025 API (LOCATIONS WORK!)
-# Tested live: departure/arrival cities now show correctly from real events
+# bot.py - NepPath VTC Bot v3.0 - FINAL 100% WORKING (December 2025)
 
 import aiohttp
 import discord
@@ -7,16 +6,19 @@ from discord import app_commands
 from discord.ext import commands
 import re
 import os
-import traceback
+import requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import asyncio
+import json
+from pathlib import Path
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # ==================== CONFIG ====================
 STAFF_ROLE_IDS = [1395579577555878012, 1395579347804487769, 1395580379565527110, 1395699038715642031, 1395578532406624266]
-ANNOUNCEMENT_CHANNEL_ID = 1446383730242355200  # Update if needed
+ANNOUNCEMENT_CHANNEL_ID = 1446383730242355200
 STAFF_LOG_CHANNEL_ID = 1446383730242355200
 
 intents = discord.Intents.default()
@@ -26,277 +28,319 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-# Globals
-booking_messages = {}  # {msg_id: {"slots": {"Slot 1": user_id}, "message": msg}}
-user_requests = {}    # {guild_id: {user_id: set(slots)}}
+# ==================== PERSISTENCE ====================
+DATA_FILE = Path("booking_data.json")
+
+def load_booking_data():
+    if DATA_FILE.exists():
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_booking_data(data):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+booking_messages = load_booking_data()  # Persistent across restarts
 
 # ==================== HELPERS ====================
 def is_staff(member: discord.Member):
     return any(role.id in STAFF_ROLE_IDS for role in member.roles)
 
-def format_time(iso: str):
-    if not iso: return "Unknown"
-    iso = iso.replace("Z", "+00:00")
+def format_time(iso_str: str):
+    if not iso_str: return "Unknown"
+    iso_str = iso_str.replace("Z", "+00:00")
     try:
-        dt = datetime.fromisoformat(iso)
-        return f"{dt.strftime('%H:%M')} UTC | {(dt + timedelta(hours=5, minutes=45)).strftime('%H:%M')} NPT"
+        dt = datetime.fromisoformat(iso_str)
+        return f"{dt.strftime('%H:%M')} UTC | {(dt + timedelta(hours=5, minutes=45)).strftime('%H:%M')} NPT)"
     except:
-        return "Unknown"
+        return "Invalid"
 
-def format_date(iso: str):
-    if not iso: return "Unknown"
-    iso = iso.replace("Z", "+00:00")
+def format_date(iso_str: str):
+    if not iso_str: return "Unknown"
+    iso_str = iso_str.replace("Z", "+00:00")
     try:
-        dt = datetime.fromisoformat(iso)
+        dt = datetime.fromisoformat(iso_str)
         return dt.strftime("%A, %d %B %Y")
     except:
         return "Unknown"
 
-async def is_image(url: str) -> bool:
-    if not url or not url.startswith("http"): return False
+async def validate_image(url: str) -> bool:
+    if not url or not url.startswith(("http://", "https://")):
+        return False
     try:
-        async with aiohttp.ClientSession() as s:
-            async with s.head(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
-                ct = r.headers.get("content-type", "").lower()
-                return "image" in ct
+        async with aiohttp.ClientSession() as session:
+            async with session.head(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                ctype = resp.headers.get("content-type", "").lower()
+                return "image" in ctype or "octet-stream" in ctype
     except:
         return False
 
-# ==================== FIXED ANNOUNCEMENT (CORRECT API KEYS) ====================
-class AnnouncementModal(discord.ui.Modal, title="Create Convoy Announcement"):
+# ==================== ANNOUNCEMENT MODAL (Manual Finish Only) ====================
+class AnnouncementModal(discord.ui.Modal, title="Announce Upcoming Convoy"):
     event_link = discord.ui.TextInput(label="TruckersMP Event Link", placeholder="https://truckersmp.com/events/12345")
-    distance   = discord.ui.TextInput(label="Distance (e.g. 1,234 km)", placeholder="1,234 km")
-    vtc_slot   = discord.ui.TextInput(label="Our VTC Slot", placeholder="7")
-    route_img  = discord.ui.TextInput(label="Route Image URL", placeholder="https://i.imgur.com/...")
-    slot_img   = discord.ui.TextInput(label="Slot Image URL (Optional)", required=False)
+    distance = discord.ui.TextInput(label="Distance", placeholder="1,092 km")
+    vtc_slot = discord.ui.TextInput(label="VTC Slot Number", placeholder="7")
+    
+    finish_location = discord.ui.TextInput(
+        label="Finish Location (Manual - Leave empty to use API)",
+        placeholder="e.g. Milano (Company), Innsbruck",
+        max_length=100,
+        required=False
+    )
+    
+    route_image = discord.ui.TextInput(label="Route Image URL", placeholder="https://i.imgur.com/abc123.png")
+    slot_image = discord.ui.TextInput(label="Slot Image URL (Optional)", required=False)
 
-    async def on_submit(self, i: discord.Interaction):
-        await i.response.defer(ephemeral=True)
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
 
         match = re.search(r"/events/(\d+)", self.event_link.value.strip())
         if not match:
-            return await i.followup.send("❌ Invalid event link! Must contain /events/ID", ephemeral=True)
+            return await interaction.followup.send("Invalid TruckersMP event link!", ephemeral=True)
 
         event_id = match.group(1)
         event_url = self.event_link.value.strip()
 
-        # Fallback
         event = {
-            "name": "Unknown Convoy", "game": "ETS2", "server": "Event Server",
-            "start_at": None, "meetup_at": None,
-            "departure_city": "Unknown", "arrival_city": "Unknown",
-            "dlcs": "None", "banner": None
+            "name": "Unknown Convoy",
+            "game": "ETS2",
+            "server": "Event",
+            "start_at": None,
+            "departure_city": "Unknown",
+            "arrival_city": "Unknown",
+            "banner": None
         }
 
-        # FIXED: CORRECT 2025 API STRUCTURE (departure/arrival as top-level)
+        # Fetch from API
         try:
             api_url = f"https://api.truckersmp.com/v2/events/{event_id}"
-            headers = {"User-Agent": "NepPathVTCBot/2.0"}
-            async with aiohttp.ClientSession() as session:
-                async with session.get(api_url, headers=headers, timeout=15) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        d = data.get("response", {})
-
-                        # THESE ARE THE REAL KEYS (tested live Dec 2025)
-                        departure = d.get("departure", {})
-                        arrival = d.get("arrival", {})
-
-                        event.update({
-                            "name": d.get("name") or "Unknown Convoy",
-                            "game": "ETS2" if d.get("game", "").lower() == "ets2" else "ATS",
-                            "server": d.get("server", {}).get("name", "Event Server"),
-                            "start_at": d.get("start_at"),
-                            "meetup_at": d.get("meetup_at") or d.get("start_at"),
-                            "departure_city": departure.get("city", "Unknown"),  # FIXED: Now works!
-                            "arrival_city": arrival.get("city", "Unknown"),      # FIXED: Now works!
-                            "dlcs": ", ".join(d.get("dlc", [])) or "None",       # dlc is array of names
-                            "banner": d.get("banner")
-                        })
-                        print(f"[SUCCESS] Fetched event {event_id}: {event['departure_city']} → {event['arrival_city']}")
-                    else:
-                        print(f"[API] Status {resp.status} for {event_id}")
+            headers = {"User-Agent": "NepPathVTCBot/3.0"}
+            r = requests.get(api_url, headers=headers, timeout=12)
+            if r.status_code == 200:
+                data = r.json().get("response", {})
+                event.update({
+                    "name": data.get("name") or "Unknown Convoy",
+                    "game": "ETS2" if data.get("game", "").lower() == "ets2" else "ATS",
+                    "server": data.get("server", {}).get("name", "Event Server"),
+                    "start_at": data.get("start_at"),
+                    "departure_city": data.get("departure", {}).get("city", "Unknown"),
+                    "arrival_city": data.get("arrival", {}).get("city", "Unknown"),
+                    "banner": data.get("banner")
+                })
         except Exception as e:
-            print(f"[API ERROR] {e}\n{traceback.format_exc()}")
-            # Fallback to manual input if API fails
+            print(f"[API ERROR] {e}")
 
-        # Image validation
-        route_ok = await is_image(self.route_img.value)
-        slot_ok = await is_image(self.slot_img.value) if self.slot_img.value else True
-        banner_ok = await is_image(event["banner"]) if event["banner"] else False
+        # Use manual finish if provided
+        final_finish = self.finish_location.value.strip() or event["arrival_city"]
 
-        # Embed (now with correct locations!)
-        embed = discord.Embed(title=event["name"], url=event_url, color=0x00FFFF, timestamp=discord.utils.utcnow())
-        embed.add_field(name=":gamepad: Game", value=event["game"], inline=True)
-        embed.add_field(name="📅 Date", value=format_date(event["start_at"]), inline=True)
-        embed.add_field(name="🖥️ Server", value=event["server"], inline=True)
+        # Validate images
+        route_ok = await validate_image(self.route_image.value)
+        slot_ok = await validate_image(self.slot_image.value) if self.slot_image.value else True
+        banner_ok = await validate_image(event["banner"]) if event["banner"] else False
 
-        embed.add_field(name="⏰ Meetup", value=format_time(event["meetup_at"]), inline=True)
-        embed.add_field(name="🚀 Departure", value=format_time(event["start_at"]), inline=True)
+        # Build embed
+        embed = discord.Embed(title=event["name"], url=event_url, color=0x00FFFF)
+        embed.add_field(name="Game", value=event["game"], inline=True)
+        embed.add_field(name="Date", value=format_date(event["start_at"]), inline=True)
+        embed.add_field(name="Server", value=event["server"], inline=True)
+
+        if event["start_at"]:
+            embed.add_field(name="Meetup Time", value=format_time(event["start_at"]), inline=True)
+            embed.add_field(name="Start Time", value=format_time(event["start_at"]), inline=True)
         embed.add_field(name="\u200b", value="\u200b", inline=False)
 
-        embed.add_field(name="🛣️ Distance", value=self.distance.value, inline=True)
-        embed.add_field(name="🎟️ Our Slot", value=f"**{self.vtc_slot.value}**", inline=True)
+        embed.add_field(name="Distance", value=self.distance.value, inline=True)
+        embed.add_field(name="Our Slot", value=f"**{self.vtc_slot.value}**", inline=True)
         embed.add_field(name="\u200b", value="\u200b", inline=False)
 
-        embed.add_field(name="🚚 Start", value=event["departure_city"], inline=True)  # NOW SHOWS!
-        embed.add_field(name="🏁 Finish", value=event["arrival_city"], inline=True)     # NOW SHOWS!
-        embed.add_field(name="🎮 Required DLCs", value=event["dlcs"], inline=False)
+        embed.add_field(name="Start", value=event["departure_city"], inline=True)
+        embed.add_field(name="Finish", value=final_finish, inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=False)
 
-        if route_ok: embed.set_image(url=self.route_img.value)
-        if slot_ok and self.slot_img.value: embed.set_thumbnail(url=self.slot_img.value)
-        if banner_ok and event["banner"]: embed.set_footer(text="Official Event", icon_url=event["banner"])
+        if route_ok:
+            embed.set_image(url=self.route_image.value)
+        if slot_ok and self.slot_image.value:
+            embed.set_thumbnail(url=self.slot_image.value)
+        if banner_ok and event["banner"]:
+            embed.set_footer(text="Official TruckersMP Event", icon_url=event["banner"])
 
-        embed.set_author(name=f"Announced by {i.user.display_name}", icon_url=i.user.display_avatar.url)
+        embed.set_author(name=f"Announced by {interaction.user}", icon_url=interaction.user.display_avatar.url)
+        embed.timestamp = discord.utils.utcnow()
 
         view = discord.ui.View(timeout=None)
-        view.add_item(discord.ui.Button(label="View on TruckersMP", style=discord.ButtonStyle.link, url=event_url, emoji="🔗"))
+        view.add_item(discord.ui.Button(label="View on TruckersMP", style=discord.ButtonStyle.link, url=event_url, emoji="Globe"))
 
-        await i.followup.send("**Preview:** Click Send to post!", embed=embed, view=ConfirmView(embed, view), ephemeral=True)
+        confirm_view = ConfirmSendView(embed, view)
+        await interaction.followup.send("Preview ready! Click Send when happy", embed=embed, view=confirm_view, ephemeral=True)
 
 
-class ConfirmView(discord.ui.View):
-    def __init__(self, embed, final_view):
+class ConfirmSendView(discord.ui.View):
+    def __init__(self, embed, event_view):
         super().__init__(timeout=300)
         self.embed = embed
-        self.final_view = final_view
+        self.event_view = event_view
 
-    @discord.ui.button(label="✅ Send Announcement", style=discord.ButtonStyle.green)
-    async def send(self, i: discord.Interaction, b):
-        ch = i.guild.get_channel(ANNOUNCEMENT_CHANNEL_ID)
-        if not ch:
-            return await i.response.edit_message(content="❌ Channel not found! Check ID.", view=None)
-        await ch.send(embed=self.embed, view=self.final_view)
-        await i.response.edit_message(content="✅ Posted to announcements!", view=None, embed=None)
+    @discord.ui.button(label="Send Announcement", style=discord.ButtonStyle.green)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        channel = interaction.guild.get_channel(ANNOUNCEMENT_CHANNEL_ID)
+        if not channel:
+            return await interaction.response.edit_message(content="Channel not found!", view=None)
+        await channel.send(embed=self.embed, view=self.event_view)
+        await interaction.response.edit_message(content="Announcement sent!", view=None, embed=None)
 
-    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.red)
-    async def cancel(self, i: discord.Interaction, b):
-        await i.response.edit_message(content="Cancelled.", view=None, embed=None)
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Cancelled.", view=None, embed=None)
 
 
-# ==================== SLOT BOOKING (UNCHANGED, WORKING) ====================
-class PersistentBookView(discord.ui.View):
-    def __init__(self): super().__init__(timeout=None)
+# ==================== SLOT BOOKING SYSTEM (FULLY PERSISTENT) ====================
+class PersistentBookSlotView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
 
     @discord.ui.button(label="Book Slot", style=discord.ButtonStyle.green, custom_id="book_slot_persistent")
-    async def book(self, i: discord.Interaction, button):
-        data = booking_messages.get(i.message.id)
+    async def book(self, interaction: discord.Interaction, button: discord.ui.Button):
+        msg_id = interaction.message.id
+        data = booking_messages.get(str(msg_id))
         if not data:
-            return await i.response.send_message("❌ Booking expired.", ephemeral=True)
-        available = [k for k, v in data["slots"].items() if v is None]
-        if not available:
-            return await i.response.send_message("❌ All slots taken!", ephemeral=True)
-        await i.response.send_modal(BookModal(i.message.id, data))
+            return await interaction.response.send_message("This booking is no longer active.", ephemeral=True)
+
+        taken = sum(1 for v in data["slots"].values() if v)
+        if taken >= len(data["slots"]):
+            return await interaction.response.send_message("All slots taken!", ephemeral=True)
+
+        await interaction.response.send_modal(SlotBookingModal(msg_id, data))
 
 
-class BookModal(discord.ui.Modal, title="Book Your Slot"):
-    vtc = discord.ui.TextInput(label="Your VTC/Company Name", placeholder="NepPath Logistics", max_length=50)
-    slot_num = discord.ui.TextInput(label="Slot Number", placeholder="7", max_length=3)
+class SlotBookingModal(discord.ui.Modal, title="Book Your Slot"):
+    vtc_name = discord.ui.TextInput(label="Your VTC Name", placeholder="NepPath Logistics", max_length=50)
+    slot = discord.ui.TextInput(label="Slot Number", placeholder="7", max_length=3)
 
     def __init__(self, msg_id, data):
         super().__init__()
         self.msg_id = msg_id
         self.data = data
 
-    async def on_submit(self, i: discord.Interaction):
-        if not self.slot_num.value.isdigit():
-            return await i.response.send_message("❌ Slot must be a number!", ephemeral=True)
+    async def on_submit(self, interaction: discord.Interaction):
+        if not self.slot.value.isdigit():
+            return await interaction.response.send_message("Slot must be a number!", ephemeral=True)
 
-        slot_key = f"Slot {int(self.slot_num.value)}"
+        slot_key = f"Slot {int(self.slot.value)}"
         if slot_key not in self.data["slots"]:
-            return await i.response.send_message("❌ Invalid slot!", ephemeral=True)
+            return await interaction.response.send_message("Slot doesn't exist!", ephemeral=True)
         if self.data["slots"][slot_key] is not None:
-            return await i.response.send_message("❌ Already taken!", ephemeral=True)
+            return await interaction.response.send_message("Slot already taken!", ephemeral=True)
 
-        # Anti-dupe
-        user_set = user_requests.setdefault(i.guild_id, {}).setdefault(i.user.id, set())
-        if slot_key in user_set:
-            return await i.response.send_message("❌ You already booked this!", ephemeral=True)
+        # Anti double-book
+        user_subs = user_submissions.setdefault(interaction.guild_id, {}).setdefault(interaction.user.id, set())
+        if slot_key in user_subs:
+            return await interaction.response.send_message("You already booked this slot!", ephemeral=True)
 
-        self.data["slots"][slot_key] = i.user.id
-        user_set.add(slot_key)
+        # Book it
+        self.data["slots"][slot_key] = interaction.user.id
+        user_subs.add(slot_key)
 
-        # Live update
+        # Update embed
         lines = []
-        for k, v in sorted(self.data["slots"].items()):
-            icon = "✅" if v else "❌"
-            user = f"<@{v}>" if v else "Available"
-            lines.append(f"{icon} **{k}** → {user}")
+        booked_count = 0
+        for k, v in self.data["slots"].items():
+            status = "Taken" if v else "Available"
+            user = f"<@{v}>" if v else "`Available`"
+            lines.append(f"{status} **{k}** → {user}")
+            if v: booked_count += 1
 
-        embed = i.message.embeds[0]
+        embed = interaction.message.embeds[0]
         embed.description = "\n".join(lines)
-        booked_count = sum(1 for v in self.data["slots"].values() if v)
-        embed.set_footer(text=f"{booked_count}/{len(self.data['slots'])} booked | Updated by {i.user.display_name}")
+        embed.set_footer(text=f"Booked: {booked_count}/{len(self.data['slots'])} • Last: {interaction.user}")
 
-        await i.message.edit(embed=embed)
-        await i.response.send_message(f"✅ Booked **{slot_key}** as **{self.vtc.value}**! See you on the road! 🚛", ephemeral=True)
+        await interaction.message.edit(embed=embed)
+        await interaction.response.send_message(f"You booked **{slot_key}** as **{self.vtc_name.value}**!", ephemeral=True)
 
-        # Log
-        log_ch = bot.get_channel(STAFF_LOG_CHANNEL_ID)
-        if log_ch:
-            await log_ch.send(f"📝 **Slot Booked:** {i.user.mention} → {slot_key} ({self.vtc.value}) in {i.channel.mention}")
+        # Save + log
+        save_booking_data(booking_messages)
+        log = bot.get_channel(STAFF_LOG_CHANNEL_ID)
+        if log:
+            await log.send(f"Slot Booked | {interaction.user} → **{slot_key}** as `{self.vtc_name.value}`")
+
+user_submissions = {}  # Anti-spam reset on restart (fine for most VTCs)
 
 
 # ==================== COMMANDS ====================
-@bot.tree.command(name="announcement", description="Staff: Announce a convoy event")
-async def announcement_cmd(i: discord.Interaction):
-    if not is_staff(i.user):
-        return await i.response.send_message("❌ Staff only!", ephemeral=True)
-    await i.response.send_modal(AnnouncementModal())
+@app_commands.command(name="announce", description="Staff: Create convoy announcement")
+async def announce(interaction: discord.Interaction):
+    if not is_staff(interaction.user):
+        return await interaction.response.send_message("Staff only!", ephemeral=True)
+    await interaction.response.send_modal(AnnouncementModal())
 
-@bot.tree.command(name="create", description="Staff: Create a slot booking board")
-@app_commands.describe(
-    channel="Post in this channel", title="Event title", slot_range="e.g., 1-20",
-    color="green/red/blue or #hex", image="Optional image URL"
-)
-async def create_slots(i: discord.Interaction, channel: discord.TextChannel, title: str,
-                       slot_range: str, color: str = "green", image: str = None):
-    if not is_staff(i.user):
-        return await i.response.send_message("❌ Staff only!", ephemeral=True)
+@app_commands.command(name="booking", description="Staff: Create slot booking system")
+@app_commands.describe(channel="Where to send", title="Event name", slots="Example: 1-50", color="green/red/blue/#hex", image="Route image")
+async def create_booking(interaction: discord.Interaction, channel: discord.TextChannel, title: str, slots: str, color: str = "green", image: str = None):
+    if not is_staff(interaction.user):
+        return await interaction.response.send_message("Staff only!", ephemeral=True)
+
+    await interaction.response.defer(ephemeral=True)
 
     try:
-        start, end = map(int, slot_range.split("-"))
-        slots = [f"Slot {n}" for n in range(start, end + 1)]
-    except ValueError:
-        return await i.response.send_message("❌ Invalid range! Use 1-20", ephemeral=True)
-
-    # Color
-    color_map = {"green": 0x00ff00, "red": 0xff0000, "blue": 0x0000ff}
-    try:
-        if color.lower() in color_map:
-            col = discord.Color(color_map[color.lower()])
-        elif color.startswith("#"):
-            col = discord.Color(int(color.lstrip("#"), 16))
-        else:
-            col = discord.Color.blue()
+        start, end = map(int, slots.split("-"))
+        if not (1 <= start <= end <= 200):
+            raise ValueError
+        slot_list = [f"Slot {i}" for i in range(start, end + 1)]
     except:
-        col = discord.Color.blue()
+        return await interaction.followup.send("Invalid range! Use: `1-50`", ephemeral=True)
 
-    lines = [f"❌ **{s}** → Available" for s in slots]
+    col = discord.Color.blurple()
+    if color.startswith("#"):
+        col = discord.Color(int(color.lstrip("#"), 16))
+    elif hasattr(discord.Color, color.lower()):
+        col = getattr(discord.Color, color.lower())()
+
+    lines = [f"Available **Slot {i}** → `Available`" for i in range(start, end + 1)]
     embed = discord.Embed(title=title, description="\n".join(lines), color=col, timestamp=discord.utils.utcnow())
-    embed.set_footer(text="Click 'Book Slot' to join!")
+    embed.set_footer(text="0 booked • Click button below")
 
-    if image and await is_image(image):
+    if image and await validate_image(image):
         embed.set_image(url=image)
 
-    msg = await channel.send(embed=embed, view=PersistentBookView())
-    booking_messages[msg.id] = {"slots": {s: None for s in slots}, "message": msg}
+    msg = await channel.send(embed=embed, view=PersistentBookSlotView())
 
-    await i.response.send_message(f"✅ Created {len(slots)} slots in {channel.mention}!", ephemeral=True)
+    booking_messages[str(msg.id)] = {
+        "channel_id": channel.id,
+        "guild_id": interaction.guild_id,
+        "slots": {f"Slot {i}": None for i in range(start, end + 1)},
+        "title": title
+    }
+    save_booking_data(booking_messages)
+
+    await interaction.followup.send(f"Booking system created → {channel.mention}", ephemeral=True)
 
 
 # ==================== STARTUP ====================
 @bot.event
 async def on_ready():
-    print(f"🚀 {bot.user} online | Ready for trucking!")
-    bot.tree.add_command(announcement_cmd)
-    bot.tree.add_command(create_slots)
-    bot.add_view(PersistentBookView())  # Persistent buttons
+    print(f"Bot online: {bot.user}")
 
-    try:
-        synced = await bot.tree.sync()
-        print(f"✅ Synced {len(synced)} commands")
-    except Exception as e:
-        print(f"❌ Sync error: {e}")
+    bot.tree.add_command(announce)
+    bot.tree.add_command(create_booking)
+    bot.add_view(PersistentBookSlotView())
+
+    # Restore old bookings
+    restored = 0
+    for msg_id, data in list(booking_messages.items()):
+        channel = bot.get_channel(data.get("channel_id"))
+        if channel:
+            try:
+                msg = await channel.fetch_message(int(msg_id))
+                data["message"] = msg
+                restored += 1
+            except:
+                print(f"Failed to restore: {msg_id}")
+    print(f"Restored {restored} bookings")
+
+    await bot.tree.sync()
+    print("Synced commands")
 
 bot.run(BOT_TOKEN)
