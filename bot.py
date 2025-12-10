@@ -126,7 +126,7 @@ class AnnouncementModal(discord.ui.Modal, title="Create Convoy Announcement"):
         banner_ok = await is_image(event["banner"]) if event["banner"] else False
 
         # Embed (now with correct locations!)
-        embed = discord.Embed(title=event["name"], url=event_url, color=ff5a20, timestamp=discord.utils.utcnow())
+        embed = discord.Embed(title=event["name"], url=event_url, color=0x00FFFF, timestamp=discord.utils.utcnow())
         embed.add_field(name=":gamepad: Game", value=event["game"], inline=True)
         embed.add_field(name="📅 Date", value=format_date(event["start_at"]), inline=True)
         embed.add_field(name="🖥️ Server", value=event["server"], inline=True)
