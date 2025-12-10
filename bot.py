@@ -14,7 +14,7 @@ intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = app_commands.CommandTree(bot)
 
-# ---------------- TruckersMP APIs ----------------
+# TruckersMP API URLs
 TMP_PLAYER_API = "https://api.truckersmp.com/v2/player/"
 TMP_VTC_API = "https://api.truckersmp.com/v2/vtc/"
 TMP_BANS_API = "https://api.truckersmp.com/v2/bans/"
@@ -37,27 +37,26 @@ class VTCIDModal(Modal, title="Enter Your VTC ID"):
             return
 
         async with aiohttp.ClientSession() as session:
+            # Fetch VTC data
             vtc_url = f"{TMP_VTC_API}{vtc_id_num}"
             async with session.get(vtc_url) as resp:
                 if resp.status != 200:
-                    await interaction.followup.send("❌ Failed to fetch VTC. Check the ID.", ephemeral=True)
+                    await interaction.followup.send("❌ Failed to fetch VTC. Check the ID or try again later.", ephemeral=True)
                     return
                 vtc_data = await resp.json()
 
-            if
-
- vtc_data.get("error"):
-                await interaction.followup.send(f"❌ Error: {vtc_data.get('response', 'Unknown')}", ephemeral=True)
+            if vtc_data.get("error"):
+                await interaction.followup.send(f"❌ TruckersMP API Error: {vtc_data.get('response', 'Unknown error')}", ephemeral=True)
                 return
 
             members = vtc_data["response"].get("members", [])
             if not members:
-                await interaction.followup.send("ℹ️ This VTC has no members.", ephemeral=True)
+                await interaction.followup.send("ℹ️ This VTC has no members or is private.", ephemeral=True)
                 return
 
             embed = discord.Embed(
                 title=f"{vtc_data['response']['name']} Members",
-                description=f"Total: {len(members)} | [View on TruckersMP](https://truckersmp.com/vtc/{vtc_id_num})",
+                description=f"Total members: {len(members)} | [View on TruckersMP](https://truckersmp.com/vtc/{vtc_id_num})",
                 color=0x00ff00,
                 timestamp=datetime.utcnow()
             )
@@ -65,21 +64,21 @@ class VTCIDModal(Modal, title="Enter Your VTC ID"):
             if logo:
                 embed.set_thumbnail(url=logo)
 
-            shown = min(15, len(members))  # Limit to avoid timeouts/rate limits
+            shown = min(15, len(members))  # Limit to avoid rate limits/timeouts
             for member in members[:shown]:
                 player_id = member["id"]
                 name = member["username"]
                 role = member["role"]
-                vtc_join = member.get("join_date", "N/A")
+                vtc_join = member.get("join_date", "N/A")[:10]
 
                 # Player details
-                async with session.get(f"{TMP_PLAYER_API}{player_id}") as p:
-                    p_data = await p.json() if p.status == 200 else {}
+                async with session.get(f"{TMP_PLAYER_API}{player_id}") as p_resp:
+                    p_data = await p_resp.json() if p_resp.status == 200 else {}
                     player = p_data.get("response", {})
 
-                # Bans
-                async with session.get(f"{TMP_BANS_API}{player_id}") as b:
-                    b_data = await b.json() if b.status == 200 else {}
+                # Ban count
+                async with session.get(f"{TMP_BANS_API}{player_id}") as b_resp:
+                    b_data = await b_resp.json() if b_resp.status == 200 else {}
                     ban_count = len(b_data.get("response", []))
 
                 details = (
@@ -87,14 +86,14 @@ class VTCIDModal(Modal, title="Enter Your VTC ID"):
                     f"**TMP ID:** {player.get('id', 'N/A')}\n"
                     f"**Steam ID:** {player.get('steamID64', 'N/A')}\n"
                     f"**Joined TMP:** {player.get('joinDate', 'N/A')[:10]}\n"
-                    f"**Joined VTC:** {vtc_join[:10]}\n"
+                    f"**Joined VTC:** {vtc_join}\n"
                     f"**Bans:** {ban_count}"
                 )
 
-                embed.add_field(name=f"{name}", value=details, inline=False)
+                embed.add_field(name=name, value=details, inline=False)
 
             if len(members) > shown:
-                embed.set_footer(text=f"Showing {shown}/{len(members)} members • Limited for performance")
+                embed.set_footer(text=f"Showing first {shown} of {len(members)} members (limited for performance)")
 
             await interaction.followup.send(embed=embed)
 
@@ -105,6 +104,6 @@ async def vtc_members(interaction: discord.Interaction):
 @bot.event
 async def on_ready():
     await tree.sync()
-    print(f"🚀 Bot is online as {bot.user}")
+    print(f"🚀 Bot is online as {bot.user} | Commands synced")
 
 bot.run(BOT_TOKEN)
