@@ -1,14 +1,17 @@
-# Use official Python runtime as a base image
-FROM python:3.14-slim
+# Use official Python image
+FROM python:3.11-slim
 
-# Set the working directory
+# Set work directory
 WORKDIR /app
 
-# Copy the current directory contents into the container
-COPY . /app
+# Copy only requirements first (caching trick)
+COPY requirements.txt .
 
-# Install dependencies
+# Install all dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the bot
+COPY . .
 
 # Run the bot
 CMD ["python", "bot.py"]
