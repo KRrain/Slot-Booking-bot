@@ -33,8 +33,7 @@ COLOR_OPTIONS = {
     "black": discord.Color.from_rgb(0, 0, 0),
 }
 
-# In-memory booking store
-booking_messages = {}
+booking_messages = {}  # In-memory booking storage
 
 # ----------------- INTENTS -----------------
 intents = discord.Intents.default()
@@ -43,6 +42,7 @@ intents.members = True
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
 
 # ============================================================
 #                      HELPER FUNCTIONS
@@ -80,169 +80,193 @@ def is_staff_member(user):
 
 
 # ============================================================
-#                SLOT BOOKING MODAL (Dropdown)
+#                     BOOK SLOT MODAL
 # ============================================================
 class BookSlotModal(discord.ui.Modal, title="Book a Slot"):
-    vtc_name = discord.ui.TextInput(
-        label="Enter your VTC Name",
-        placeholder="Your VTC name",
-        max_length=50,
-    )
+    vtc_name = discord.ui.TextInput(label="Enter your VTC Name", placeholder="Your VTC name", max_length=50)
 
-    def __init__(self, message_id):
+    def __init__(self, message_id, selected_slot):
         super().__init__()
         self.message_id = message_id
-
-        data = booking_messages.get(message_id)
-        if not data:
-            self.available_slots = []
-            self.default_slot = None
-            return
-
-        slots = data.get("slots", {})
-        # Only include available slots
-        self.available_slots = [slot for slot, user in slots.items() if user is None]
-        if not self.available_slots:
-            self.default_slot = None
-        else:
-            self.default_slot = self.available_slots[0]
-
+        self.selected_slot = selected_slot
 
     async def on_submit(self, interaction: discord.Interaction):
-        if not self.default_slot:
-            return await interaction.response.send_message("❌ No available slots.", ephemeral=True)
-
         data = booking_messages.get(self.message_id)
         if not data:
             return await interaction.response.send_message("❌ Booking message not found.", ephemeral=True)
 
-        slots = data.get("slots", {})
-        chosen_slot = self.default_slot
+        slots = data["slots"]
+        slot = self.selected_slot
         vtc_name = self.vtc_name.value.strip()
 
-        if slots[chosen_slot] is not None:
-            return await interaction.response.send_message(
-                f"❌ Slot `{chosen_slot}` is already booked.", ephemeral=True
-            )
+        if slots[slot] is not None:
+            return await interaction.response.send_message(f"❌ Slot `{slot}` already booked.", ephemeral=True)
 
-        # Assign slot
-        slots[chosen_slot] = vtc_name
+        slots[slot] = {"name": vtc_name, "status": "pending"}
 
         # Update embed
         embed = data["message"].embeds[0]
-        new_desc = "\n".join(
-            f"{slot}: {name if name else 'Available'}" for slot, name in slots.items()
+        embed.description = "\n".join(
+            f"{s}: {slots[s]['name'] if slots[s] else 'Available'}" for s in slots
         )
-        embed.description = new_desc
-        await data["message"].edit(embed=embed)
+        await data["message"].edit(embed=embed, view=SlotDropdownView(self.message_id))
 
-        # Staff log embed with buttons
+        # Staff log
         staff_channel = bot.get_channel(STAFF_LOG_CHANNEL_ID)
         if staff_channel:
             staff_embed = discord.Embed(
                 title="📌 New Slot Booking",
-                description=f"User: {interaction.user.mention}\nVTC Name: {vtc_name}\nSlot: {chosen_slot}",
+                description=f"User: {interaction.user.mention}\nVTC Name: {vtc_name}\nSlot: {slot}",
                 color=discord.Color.orange(),
                 timestamp=datetime.utcnow()
             )
-
-            view = discord.ui.View()
-            view.add_item(discord.ui.Button(label="✅ Approve", style=discord.ButtonStyle.green, emoji="✅", custom_id=f"approve_{interaction.user.id}_{chosen_slot}"))
-            view.add_item(discord.ui.Button(label="❌ Deny", style=discord.ButtonStyle.red, emoji="❌", custom_id=f"deny_{interaction.user.id}_{chosen_slot}"))
-            view.add_item(discord.ui.Button(label="🗑 Remove", style=discord.ButtonStyle.grey, emoji="🗑", custom_id=f"remove_{interaction.user.id}_{chosen_slot}"))
-
+            view = StaffActionView(interaction.user.id, slot, self.message_id)
             await staff_channel.send(embed=staff_embed, view=view)
 
-        await interaction.response.send_message(
-            f"✅ You booked slot `{chosen_slot}` as `{vtc_name}`.", ephemeral=True
-        )
+        await interaction.response.send_message(f"✅ You booked slot `{slot}` as `{vtc_name}`.", ephemeral=True)
 
 
 # ============================================================
-#                    SLOT BOOKING VIEW
+#                    SLOT DROPDOWN VIEW
+# ============================================================
+class SlotSelect(discord.ui.Select):
+    def __init__(self, options, message_id):
+        super().__init__(placeholder="Select a slot...", options=options)
+        self.message_id = message_id
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_slot = self.values[0]
+        modal = BookSlotModal(self.message_id, selected_slot)
+        await interaction.response.send_modal(modal)
+
+
+class SlotDropdownView(discord.ui.View):
+    def __init__(self, message_id):
+        super().__init__(timeout=None)
+        self.message_id = message_id
+        data = booking_messages.get(message_id)
+        self.slots = data["slots"] if data else {}
+
+        options = [
+            discord.SelectOption(label=slot, description="Available", default=False)
+            for slot, user in self.slots.items() if user is None
+        ]
+        if options:
+            self.add_item(SlotSelect(options, self.message_id))
+
+
+# ============================================================
+#                     BOOK SLOT BUTTON VIEW
 # ============================================================
 class BookSlotView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, message_id):
         super().__init__(timeout=None)
+        self.message_id = message_id
 
-    @discord.ui.button(
-        label="📌 Book Slot",
-        style=discord.ButtonStyle.green,
-        custom_id="book_slot_button",
-    )
+    @discord.ui.button(label="📌 Book Slot", style=discord.ButtonStyle.green, custom_id="book_slot_button")
     async def book_slot_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        msg_id = interaction.message.id
-        if msg_id not in booking_messages:
-            return await interaction.response.send_message(
-                "❌ Booking session not found.", ephemeral=True
-            )
-
-        await interaction.response.send_modal(BookSlotModal(msg_id))
+        await interaction.response.send_message(view=SlotDropdownView(self.message_id), ephemeral=True)
 
 
 # ============================================================
-#                    ANNOUNCEMENT MODAL
+#                 STAFF ACTION BUTTONS
 # ============================================================
-class AnnouncementModal(discord.ui.Modal, title="Create Announcement"):
-    title = discord.ui.TextInput(
-        label="Announcement Title",
-        placeholder="Enter the title",
-        max_length=100,
-    )
-    message = discord.ui.TextInput(
-        label="Announcement Message",
-        placeholder="Enter content",
-        style=discord.TextStyle.paragraph,
-        max_length=2000,
-    )
-    color = discord.ui.TextInput(
-        label="Announcement Color (optional)",
-        placeholder="blue | red | #ff0000",
-        max_length=7,
-        required=False,
-    )
+class StaffButton(discord.ui.Button):
+    def __init__(self, action, label, style, emoji):
+        super().__init__(label=label, style=style, emoji=emoji)
+        self.action = action
 
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            announcement_title = self.title.value.strip()
-            announcement_message = self.message.value.strip()
-            color_input = self.color.value.strip()
-            embed_color = parse_color(color_input) or discord.Color.blue()
+    async def callback(self, interaction: discord.Interaction):
+        data = booking_messages.get(self.view.message_id)
+        if not data:
+            return await interaction.response.send_message("❌ Booking not found.", ephemeral=True)
 
-            announcement_channel = discord.utils.get(
-                interaction.guild.text_channels, name="announcements"
-            )
-            if not announcement_channel:
-                return await interaction.response.send_message(
-                    "❌ `#announcements` channel not found.",
-                    ephemeral=True,
-                )
+        slots = data["slots"]
+        slot_data = slots.get(self.view.slot)
+        user = interaction.guild.get_member(self.view.user_id)
 
-            embed = discord.Embed(
-                title=announcement_title,
-                description=announcement_message,
-                color=embed_color,
-            )
-            await announcement_channel.send(embed=embed)
-            await interaction.response.send_message("✅ Announcement sent.", ephemeral=True)
+        if not slot_data:
+            return await interaction.response.send_message("❌ Slot data missing.", ephemeral=True)
 
-        except Exception:
-            traceback.print_exc()
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error occurred.", ephemeral=True)
+        embed = data["message"].embeds[0]
+
+        if self.action == "approve":
+            slot_data["status"] = "approved"
+            embed.color = discord.Color.green()
+            embed.title = f"✅ Approved: Slot {self.view.slot}"
+            await data["message"].edit(embed=embed)
+            try: await user.send(f"✅ Your slot `{self.view.slot}` has been approved!")
+            except: pass
+            await interaction.response.send_message(f"✅ Approved {user.mention}'s booking.", ephemeral=True)
+
+        elif self.action == "deny":
+            try: await user.send(f"❌ Your slot `{self.view.slot}` has been denied!")
+            except: pass
+            await interaction.response.send_message(f"❌ Deny DM sent to {user.mention}.", ephemeral=True)
+
+        elif self.action == "remove":
+            if slot_data["status"] != "approved":
+                return await interaction.response.send_message("❌ No approval to remove.", ephemeral=True)
+            slot_data["status"] = "pending"
+            embed.color = discord.Color.orange()
+            embed.title = f"🗑 Approval removed: Slot {self.view.slot}"
+            await data["message"].edit(embed=embed)
+            try: await user.send(f"🗑 Your approval for slot `{self.view.slot}` has been removed!")
+            except: pass
+            await interaction.response.send_message(f"🗑 Removed approval for {user.mention}.", ephemeral=True)
+
+
+class StaffActionView(discord.ui.View):
+    def __init__(self, user_id, slot, message_id):
+        super().__init__(timeout=None)
+        self.user_id = user_id
+        self.slot = slot
+        self.message_id = message_id
+        self.add_item(StaffButton("approve", "✅ Approve", discord.ButtonStyle.green, "✅"))
+        self.add_item(StaffButton("deny", "❌ Deny", discord.ButtonStyle.red, "❌"))
+        self.add_item(StaffButton("remove", "🗑 Remove Approval", discord.ButtonStyle.grey, "🗑"))
 
 
 # ============================================================
-#                      MARK COMMAND with Button
+#                  CREATE BOOKING COMMAND
 # ============================================================
-@bot.tree.command(
-    name="mark",
-    description="Create Mark Attendance embed from TruckersMP link."
+@bot.tree.command(name="create", description="Staff only: Create booking message.")
+@app_commands.describe(
+    channel="Channel to send booking embed",
+    title="Embed title",
+    slot_range="Example: 1-10",
+    color="Color name or hex",
+    image="Image URL (optional)",
 )
+async def create(interaction: discord.Interaction, channel: discord.TextChannel, title: str, slot_range: str, color: str, image: str = None):
+    if not is_staff_member(interaction.user):
+        return await interaction.response.send_message("❌ You are not staff.", ephemeral=True)
+
+    slots_list = await parse_slot_range(slot_range)
+    if not slots_list:
+        return await interaction.response.send_message("❌ Invalid slot range.", ephemeral=True)
+
+    hex_color = parse_color(color)
+    if not hex_color:
+        return await interaction.response.send_message("❌ Invalid color.", ephemeral=True)
+
+    embed = discord.Embed(title=title, description="\n".join(slots_list), color=hex_color)
+    if image:
+        embed.set_image(url=image)
+
+    sent_msg = await channel.send(embed=embed, view=BookSlotView(None))
+    booking_messages[sent_msg.id] = {"message": sent_msg, "slots": {slot: None for slot in slots_list}}
+
+    await interaction.response.send_message(f"✅ Booking embed created with {len(slots_list)} slots.", ephemeral=True)
+
+
+# ============================================================
+#                      MARK COMMAND
+# ============================================================
+@bot.tree.command(name="mark", description="Create Mark Attendance embed from TruckersMP link.")
 @app_commands.describe(event_link="TruckersMP event link")
 async def mark(interaction: discord.Interaction, event_link: str):
     await interaction.response.defer(thinking=True, ephemeral=True)
-
     match = re.search(r"/events/(\d+)", event_link)
     if not match:
         return await interaction.followup.send("❌ Invalid TruckersMP link.", ephemeral=True)
@@ -254,10 +278,7 @@ async def mark(interaction: discord.Interaction, event_link: str):
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url) as resp:
                 if resp.status != 200:
-                    return await interaction.followup.send(
-                        f"❌ API returned HTTP {resp.status}.",
-                        ephemeral=True,
-                    )
+                    return await interaction.followup.send(f"❌ API returned HTTP {resp.status}.", ephemeral=True)
                 data = await resp.json()
     except Exception as e:
         traceback.print_exc()
@@ -280,7 +301,6 @@ async def mark(interaction: discord.Interaction, event_link: str):
 
     start_dt = parse_iso(event.get("start_at"))
     meetup_dt = parse_iso(event.get("meetup_at", event.get("start_at")))
-
     date_str = start_dt.strftime("%a, %d %B %Y") if start_dt else "Unknown"
     meetup_time = meetup_dt.strftime("%H:%M UTC") if meetup_dt else "Unknown"
     depart_time = start_dt.strftime("%H:%M UTC") if start_dt else "Unknown"
@@ -288,7 +308,7 @@ async def mark(interaction: discord.Interaction, event_link: str):
 
     embed = discord.Embed(
         title="<:NepPathLogocircledim:1395694322061410334> Mark Your Attendance",
-        description="<@&1398294285597671606>\n\n**🙏 𝐏𝐥𝐳 𝐊𝐢𝐧𝐝𝐥𝐲 𝐌𝐚𝐫𝐤 𝐘𝐨𝐮𝐫 𝐀𝐭𝐭𝐞𝐧𝐝𝐚𝐧𝐜𝐞 𝐎𝐧 𝐓𝐡𝐢𝐬 𝐄𝐯𝐞𝐧𝐭 : ❤️**",
+        description="<@&1398294285597671606>\n\n**🙏 PLEASE MARK YOUR ATTENDANCE ❤️**",
         color=discord.Color(0xFF5A20),
     )
     embed.add_field(name="Event", value=f"[{name}]({event_link})", inline=False)
@@ -306,81 +326,31 @@ async def mark(interaction: discord.Interaction, event_link: str):
 
 
 # ============================================================
-#                  CREATE BOOKING COMMAND
+#                  ANNOUNCEMENT MODAL
 # ============================================================
-@bot.tree.command(name="create", description="Staff only: Create booking message.")
-@app_commands.describe(
-    channel="Channel to send booking embed",
-    title="Embed title",
-    slot_range="Example: 1-10",
-    color="Color name or hex",
-    image="Image URL (optional)",
-)
-async def create(
-    interaction: discord.Interaction,
-    channel: discord.TextChannel,
-    title: str,
-    slot_range: str,
-    color: str,
-    image: str = None,
-):
-    if not is_staff_member(interaction.user):
-        return await interaction.response.send_message("❌ You are not staff.", ephemeral=True)
+class AnnouncementModal(discord.ui.Modal, title="Create Announcement"):
+    title = discord.ui.TextInput(label="Announcement Title", placeholder="Enter the title", max_length=100)
+    message = discord.ui.TextInput(label="Announcement Message", placeholder="Enter content", style=discord.TextStyle.paragraph, max_length=2000)
+    color = discord.ui.TextInput(label="Announcement Color (optional)", placeholder="blue | red | #ff0000", max_length=7, required=False)
 
-    slots_list = await parse_slot_range(slot_range)
-    if not slots_list:
-        return await interaction.response.send_message("❌ Invalid slot range.", ephemeral=True)
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            announcement_title = self.title.value.strip()
+            announcement_message = self.message.value.strip()
+            color_input = self.color.value.strip()
+            embed_color = parse_color(color_input) or discord.Color.blue()
 
-    hex_color = parse_color(color)
-    if not hex_color:
-        return await interaction.response.send_message("❌ Invalid color.", ephemeral=True)
+            announcement_channel = discord.utils.get(interaction.guild.text_channels, name="announcements")
+            if not announcement_channel:
+                return await interaction.response.send_message("❌ `#announcements` channel not found.", ephemeral=True)
 
-    embed = discord.Embed(title=title, description="\n".join(slots_list), color=hex_color)
-    if image:
-        embed.set_image(url=image)
-
-    sent_msg = await channel.send(embed=embed, view=BookSlotView())
-    booking_messages[sent_msg.id] = {"message": sent_msg, "slots": {slot: None for slot in slots_list}}
-
-    await interaction.response.send_message(f"✅ Booking embed created with {len(slots_list)} slots.", ephemeral=True)
-
-
-# ============================================================
-#          BUTTON HANDLER FOR STAFF APPROVALS
-# ============================================================
-@bot.event
-async def on_interaction(interaction: discord.Interaction):
-    if not interaction.type == discord.InteractionType.component:
-        return
-
-    custom_id = interaction.data.get("custom_id", "")
-    if not custom_id:
-        return
-
-    try:
-        action, user_id, slot = custom_id.split("_", 2)
-        user = interaction.guild.get_member(int(user_id))
-        embed = interaction.message.embeds[0]
-
-        if action == "approve":
-            embed.color = discord.Color.green()
-            embed.title = f"✅ Approved: Slot {slot}"
-            await interaction.message.edit(embed=embed)
-            await interaction.response.send_message(f"✅ Approved {user.mention}'s booking for slot {slot}.", ephemeral=True)
-        elif action == "deny":
-            embed.color = discord.Color.red()
-            embed.title = f"❌ Denied: Slot {slot}"
-            await interaction.message.edit(embed=embed)
-            await interaction.response.send_message(f"❌ Denied {user.mention}'s booking for slot {slot}.", ephemeral=True)
-        elif action == "remove":
-            embed.color = discord.Color.orange()
-            embed.title = f"🗑 Removed approval for Slot {slot}"
-            await interaction.message.edit(embed=embed)
-            await interaction.response.send_message(f"🗑 Removed approval for {user.mention}'s slot {slot}.", ephemeral=True)
-    except Exception as e:
-        traceback.print_exc()
-        if not interaction.response.is_done():
-            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+            embed = discord.Embed(title=announcement_title, description=announcement_message, color=embed_color)
+            await announcement_channel.send(embed=embed)
+            await interaction.response.send_message("✅ Announcement sent.", ephemeral=True)
+        except Exception:
+            traceback.print_exc()
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error occurred.", ephemeral=True)
 
 
 # ============================================================
@@ -388,7 +358,6 @@ async def on_interaction(interaction: discord.Interaction):
 # ============================================================
 @bot.event
 async def on_ready():
-    bot.add_view(BookSlotView())
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
     try:
         synced = await bot.tree.sync()
@@ -396,8 +365,6 @@ async def on_ready():
     except Exception as e:
         print("❌ Slash sync error:", e)
         traceback.print_exc()
-    for cmd in bot.tree.get_commands():
-        print(f"Command: {cmd.name}")
 
 
 # ============================================================
