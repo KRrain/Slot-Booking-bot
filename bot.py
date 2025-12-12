@@ -4,11 +4,9 @@ import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
-
 import re
 import traceback
-from datetime import datetime, timedelta
-
+from datetime import datetime, timedelta, timezone
 import os
 from dotenv import load_dotenv
 
@@ -420,9 +418,15 @@ class MarkAttendanceView(discord.ui.View):
         )
 
 
-@bot.tree.command(name="mark", description="Create a Mark Attendance embed from a TruckersMP event link.")
-@app_commands.describe(event_link="TruckersMP event URL, e.g. https://truckersmp.com/events/12345", color="Embed color name or hex (optional)")
+@bot.tree.command(name="mark", description="Staff only: Create a Mark Attendance embed from a TruckersMP event link.")
+@app_commands.describe(
+    event_link="TruckersMP event URL, e.g. https://truckersmp.com/events/12345",
+    color="Embed color name or hex (optional)"
+)
 async def mark(interaction: discord.Interaction, event_link: str, color: str = "blue"):
+    if not is_staff_member(interaction.user):
+        return await interaction.response.send_message("❌ You are not staff.", ephemeral=True)
+
     await interaction.response.defer(thinking=True, ephemeral=True)
 
     match = re.search(r"/events/(\d+)", event_link)
@@ -443,8 +447,7 @@ async def mark(interaction: discord.Interaction, event_link: str, color: str = "
         return await interaction.followup.send(f"❌ Failed to contact TruckersMP API: `{e}`", ephemeral=True)
 
     if not data.get("response"):
-        error_msg = data.get("error", "Unknown error from TruckersMP API")
-        return await interaction.followup.send(f"❌ Could not fetch event data: {error_msg}", ephemeral=True)
+        return await interaction.followup.send("❌ Could not fetch event data.", ephemeral=True)
 
     event_info = data["response"]
     event_name = event_info.get("name", "TruckersMP Event")
@@ -455,12 +458,13 @@ async def mark(interaction: discord.Interaction, event_link: str, color: str = "
 
     embed_color = parse_color(color) or discord.Color.blue()
 
+    # Auto fetch date/time UTC and convert to NPT
     if event_start:
         dt = datetime.fromisoformat(event_start)
-        utc_time = dt.strftime("%d %b %Y, %H:%M UTC")
+        utc_str = dt.strftime("%d %b %Y / %H:%M UTC")
         npt_dt = dt + timedelta(hours=5, minutes=45)
-        npt_time = npt_dt.strftime("%H:%M NPT")
-        date_str = f"📅 Event Date: {utc_time} | {npt_time}"
+        npt_str = npt_dt.strftime("%H:%M NPT")
+        date_str = f"📅 Event Date: {utc_str} | {npt_str}"
     else:
         date_str = "📅 Event Date: Unknown"
 
@@ -476,7 +480,6 @@ async def mark(interaction: discord.Interaction, event_link: str, color: str = "
         embed.set_thumbnail(url=vtc_avatar)
 
     embed.set_footer(text="Powered by NepPath")
-
     view = MarkAttendanceView(event_link=event_link)
     await interaction.followup.send(embed=embed, view=view)
 
