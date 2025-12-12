@@ -7,7 +7,7 @@ from discord.ext import commands
 
 import re
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import os
 from dotenv import load_dotenv
@@ -287,9 +287,7 @@ class ApproveDenyView(discord.ui.View):
 
             data = booking_messages.get(self.message_id)
             if not data:
-                return await interaction.response.send_message(
-                    "❌ Booking data not found.", ephemeral=True
-                )
+                return await interaction.response.send_message("❌ Booking data not found.", ephemeral=True)
 
             slots_dict = data["slots"]
             if slots_dict.get(self.slot_number):
@@ -353,9 +351,7 @@ class ApproveDenyView(discord.ui.View):
 
             data = booking_messages.get(self.message_id)
             if not data:
-                return await interaction.response.send_message(
-                    "❌ Booking data not found.", ephemeral=True
-                )
+                return await interaction.response.send_message("❌ Booking data not found.", ephemeral=True)
 
             slots_dict = data["slots"]
             if not slots_dict.get(self.slot_number):
@@ -425,15 +421,13 @@ class MarkAttendanceView(discord.ui.View):
 
 
 @bot.tree.command(name="mark", description="Create a Mark Attendance embed from a TruckersMP event link.")
-@app_commands.describe(event_link="TruckersMP event URL, e.g. https://truckersmp.com/events/12345")
-async def mark(interaction: discord.Interaction, event_link: str):
+@app_commands.describe(event_link="TruckersMP event URL, e.g. https://truckersmp.com/events/12345", color="Embed color name or hex (optional)")
+async def mark(interaction: discord.Interaction, event_link: str, color: str = "blue"):
     await interaction.response.defer(thinking=True, ephemeral=True)
 
     match = re.search(r"/events/(\d+)", event_link)
     if not match:
-        return await interaction.followup.send(
-            "❌ Could not find an event ID in that link.", ephemeral=True
-        )
+        return await interaction.followup.send("❌ Could not find an event ID in that link.", ephemeral=True)
 
     event_id = match.group(1)
     api_url = f"https://api.truckersmp.com/v2/events/{event_id}"
@@ -454,14 +448,34 @@ async def mark(interaction: discord.Interaction, event_link: str):
 
     event_info = data["response"]
     event_name = event_info.get("name", "TruckersMP Event")
-    event_start = event_info.get("startDate") or "Unknown date"
-    event_description = event_info.get("description", "")
+    event_start = event_info.get("startDate")
+    event_banner = event_info.get("banner")
+    event_vtc = event_info.get("creator")
+    vtc_avatar = event_vtc.get("avatar") if event_vtc else None
+
+    embed_color = parse_color(color) or discord.Color.blue()
+
+    if event_start:
+        dt = datetime.fromisoformat(event_start)
+        utc_time = dt.strftime("%d %b %Y, %H:%M UTC")
+        npt_dt = dt + timedelta(hours=5, minutes=45)
+        npt_time = npt_dt.strftime("%H:%M NPT")
+        date_str = f"📅 Event Date: {utc_time} | {npt_time}"
+    else:
+        date_str = "📅 Event Date: Unknown"
 
     embed = discord.Embed(
-        title=f"📌 {event_name}",
-        description=f"{event_description}\n\n**Start:** {event_start}\n\nClick the button below if you will attend the event.",
-        color=discord.Color.blue()
+        title=event_name,
+        description=f"**🙏 𝐏𝐥𝐳 𝐊𝐢𝐧𝐝𝐥𝐲 𝐌𝐚𝐫𝐤 𝐘𝐨𝐮𝐫 𝐀𝐭𝐭𝐞𝐧𝐝𝐚𝐧𝐜𝐞 𝐎𝐧 𝐓𝐡𝐢𝐬 𝐄𝐯𝐞𝐧𝐭 : ❤️**\n\n{date_str}",
+        color=embed_color
     )
+
+    if event_banner:
+        embed.set_image(url=event_banner)
+    if vtc_avatar:
+        embed.set_thumbnail(url=vtc_avatar)
+
+    embed.set_footer(text="Powered by NepPath")
 
     view = MarkAttendanceView(event_link=event_link)
     await interaction.followup.send(embed=embed, view=view)
