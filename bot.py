@@ -1,4 +1,4 @@
-# bot.py
+# bot.py - Part 1
 
 import aiohttp
 import discord
@@ -6,7 +6,7 @@ from discord import app_commands
 from discord.ext import commands
 import re
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 from dotenv import load_dotenv
 
@@ -48,7 +48,6 @@ async def on_error(event_method, *args, **kwargs):
     print(f"Error in {event_method}:")
     traceback.print_exc()
 
-
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     print("App command error:", repr(error))
@@ -69,7 +68,6 @@ user_submissions = {}  # {guild_id: {user_id: set(slots)}}
 def is_staff_member(member: discord.Member) -> bool:
     return any(role.id in STAFF_ROLE_IDS for role in member.roles)
 
-
 async def parse_slot_range(slot_range: str):
     try:
         start_str, end_str = slot_range.split("-")
@@ -80,7 +78,6 @@ async def parse_slot_range(slot_range: str):
         return [f"Slot {i}" for i in range(start, end + 1)]
     except Exception:
         return None
-
 
 def parse_color(color_str: str):
     if color_str.lower() in COLOR_OPTIONS:
@@ -108,7 +105,6 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
     def __init__(self, message_id: int):
         super().__init__()
         self.message_id = message_id
-
         data = booking_messages.get(message_id)
         slots_dict = (data or {}).get("slots", {})
         available = [s.replace("Slot ", "") for s, v in slots_dict.items() if not v]
@@ -128,7 +124,6 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
         try:
             msg_id = self.message_id
             data = booking_messages.get(msg_id)
-
             if not data:
                 return await interaction.response.send_message(
                     "❌ Booking data not found.", ephemeral=True
@@ -148,37 +143,27 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
 
             if slot_name not in slots_dict:
                 return await interaction.response.send_message(
-                    f"❌ Slot `{raw}` does not exist.",
-                    ephemeral=True,
+                    f"❌ Slot `{raw}` does not exist.", ephemeral=True
                 )
 
             if slots_dict[slot_name]:
                 return await interaction.response.send_message(
-                    f"❌ Slot `{raw}` is already booked.",
-                    ephemeral=True,
+                    f"❌ Slot `{raw}` is already booked.", ephemeral=True
                 )
 
             guild_id = interaction.guild_id
             user_id = interaction.user.id
-
             if guild_id not in user_submissions:
                 user_submissions[guild_id] = {}
 
-            if (
-                user_id in user_submissions[guild_id]
-                and slot_name in user_submissions[guild_id][user_id]
-            ):
+            if user_id in user_submissions[guild_id] and slot_name in user_submissions[guild_id][user_id]:
                 return await interaction.response.send_message(
-                    f"❌ You already submitted slot `{raw}`.",
-                    ephemeral=True,
+                    f"❌ You already submitted slot `{raw}`.", ephemeral=True
                 )
 
             user_submissions[guild_id].setdefault(user_id, set()).add(slot_name)
 
-            await interaction.response.send_message(
-                f"✅ Request submitted for slot **{slot_id}**",
-                ephemeral=True,
-            )
+            await interaction.response.send_message(f"✅ Request submitted for slot **{slot_id}**", ephemeral=True)
 
             log_channel = bot.get_channel(STAFF_LOG_CHANNEL_ID)
             if log_channel:
@@ -204,17 +189,17 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
             traceback.print_exc()
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "❌ Error while processing booking.",
-                    ephemeral=True,
+                    "❌ Error while processing booking.", ephemeral=True
                 )
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
         traceback.print_exc()
         if not interaction.response.is_done():
             await interaction.response.send_message(
-                "❌ An internal error occurred while processing your booking.",
-                ephemeral=True,
+                "❌ An internal error occurred while processing your booking.", ephemeral=True
             )
+# bot.py - Part 2
+
 # ---------- Book Slot Button ----------
 class BookSlotView(discord.ui.View):
     def __init__(self):
@@ -246,10 +231,8 @@ class BookSlotView(discord.ui.View):
             traceback.print_exc()
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "❌ An internal error occurred when opening the booking modal.",
-                    ephemeral=True,
+                    "❌ An internal error occurred when opening the booking modal.", ephemeral=True
                 )
-
 
 # ---------- Approve/Deny/Remove Approval ----------
 class ApproveDenyView(discord.ui.View):
@@ -448,7 +431,10 @@ async def mark(interaction: discord.Interaction, event_link: str, channel: disco
     embed_color = parse_color(color) or discord.Color.blue()
 
     if event_start:
-        dt = datetime.fromisoformat(event_start)
+        # Parse UTC and convert to NPT (+5h45m)
+        if event_start.endswith("Z"):
+            event_start = event_start[:-1]
+        dt = datetime.fromisoformat(event_start).replace(tzinfo=timezone.utc)
         utc_str = dt.strftime("%d %b %Y / %H:%M UTC")
         npt_dt = dt + timedelta(hours=5, minutes=45)
         npt_str = npt_dt.strftime("%H:%M NPT")
