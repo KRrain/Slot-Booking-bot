@@ -325,7 +325,18 @@ async def mark(interaction: discord.Interaction, event_link: str, channel: disco
         embed.set_thumbnail(url=avatar)
     embed.set_footer(text="Powered by NepPath")
     mention_text = mention_role.mention if mention_role else ""
-    await channel.send(content=mention_text, embed=embed, view=MarkAttendanceButton())
+class MarkAttendanceLink(discord.ui.View):
+    def __init__(self, url: str):
+        super().__init__(timeout=None)
+        self.add_item(
+            discord.ui.Button(
+                label="✅ I Will Be There",
+                style=discord.ButtonStyle.link,
+                url=url
+            )
+        )
+
+    await channel.send(content=mention_text, embed=embed, view=MarkAttendanceLink(event_link))
     await interaction.followup.send("✅ Attendance embed sent!", ephemeral=True)
 
 # ---------- ON READY ----------
