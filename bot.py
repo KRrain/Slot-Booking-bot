@@ -33,7 +33,7 @@ COLOR_OPTIONS = {
     "black": discord.Color.from_rgb(0, 0, 0),
 }
 
-# In-memory booking storage
+# ---------------- IN-MEMORY STORAGE ----------------
 booking_messages = {}  # message_id: {"slots": {slot_number: {"name": str, "status": "pending"}}}
 
 # ----------------- INTENTS -----------------
@@ -47,7 +47,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ============================================================
 #                      HELPER FUNCTIONS
 # ============================================================
-
 def parse_color(input_color: str):
     if not input_color:
         return None
@@ -64,8 +63,7 @@ async def parse_slot_range(text: str):
     try:
         if "-" not in text:
             return None
-        a, b = text.split("-")
-        a, b = int(a), int(b)
+        a, b = map(int, text.split("-"))
         if a > b:
             return None
         return [str(i) for i in range(a, b + 1)]
@@ -82,7 +80,7 @@ class BookSlotModal(discord.ui.Modal, title="Book a Slot"):
     vtc_name = discord.ui.TextInput(label="Your VTC Name", placeholder="Enter your VTC Name", max_length=50)
     slot_number = discord.ui.TextInput(label="Slot Number", placeholder="Enter available slot number", max_length=5)
 
-    def __init__(self, message_id, channel_id):
+    def __init__(self, message_id: int, channel_id: int):
         super().__init__()
         self.message_id = message_id
         self.channel_id = channel_id
@@ -112,7 +110,7 @@ class BookSlotModal(discord.ui.Modal, title="Book a Slot"):
             if slot_data and slot_data.get("status") == "approved":
                 return await interaction.response.send_message("❌ Slot already approved.", ephemeral=True)
 
-            # Save pending booking
+            # Save as pending
             data["slots"][slot] = {"name": vtc_name, "status": "pending"}
 
             # Send staff log
@@ -132,7 +130,6 @@ class BookSlotModal(discord.ui.Modal, title="Book a Slot"):
                 f"✅ You requested slot `{slot}` as `{vtc_name}`. Waiting for staff approval.",
                 ephemeral=True
             )
-
         except Exception:
             traceback.print_exc()
             if not interaction.response.is_done():
@@ -142,7 +139,7 @@ class BookSlotModal(discord.ui.Modal, title="Book a Slot"):
 #                     BOOK SLOT BUTTON VIEW
 # ============================================================
 class BookSlotView(discord.ui.View):
-    def __init__(self, message_id, channel_id):
+    def __init__(self, message_id: int, channel_id: int):
         super().__init__(timeout=None)
         self.message_id = message_id
         self.channel_id = channel_id
@@ -190,11 +187,13 @@ class StaffButton(discord.ui.Button):
             if not slot_data:
                 return await interaction.response.send_message("❌ Slot data missing.", ephemeral=True)
 
+            # Get or create embed
             try:
                 embed = msg.embeds[0]
             except IndexError:
                 embed = discord.Embed(title="Booking Slots", description="", color=discord.Color.blue())
 
+            # APPROVE
             if self.action == "approve":
                 slot_data["status"] = "approved"
                 embed.description = "\n".join(
@@ -207,12 +206,14 @@ class StaffButton(discord.ui.Button):
                     except: pass
                 await interaction.response.send_message(f"✅ Approved {user.mention if user else 'user'} booking.", ephemeral=True)
 
+            # DENY
             elif self.action == "deny":
                 if user:
                     try: await user.send(f"❌ Your slot `{self.view.slot}` has been denied!")
                     except: pass
                 await interaction.response.send_message(f"❌ Deny DM sent to {user.mention if user else 'user'}.", ephemeral=True)
 
+            # REMOVE APPROVAL
             elif self.action == "remove":
                 if slot_data.get("status") != "approved":
                     return await interaction.response.send_message("❌ No approval to remove.", ephemeral=True)
