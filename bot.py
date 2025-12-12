@@ -87,40 +87,46 @@ class BookSlotModal(discord.ui.Modal, title="Book a Slot"):
         self.message_id = message_id
 
     async def on_submit(self, interaction: discord.Interaction):
-        data = booking_messages.get(self.message_id)
-        if not data:
-            return await interaction.response.send_message("❌ Booking message not found.", ephemeral=True)
+        try:
+            data = booking_messages.get(self.message_id)
+            if not data:
+                return await interaction.response.send_message("❌ Booking message not found.", ephemeral=True)
 
-        slot = self.slot_number.value.strip()
-        vtc_name = self.vtc_name.value.strip()
+            slot = self.slot_number.value.strip()
+            vtc_name = self.vtc_name.value.strip()
 
-        if slot not in data["slots"]:
-            return await interaction.response.send_message("❌ Invalid slot number.", ephemeral=True)
+            if slot not in data["slots"]:
+                return await interaction.response.send_message("❌ Invalid slot number.", ephemeral=True)
 
-        slot_data = data["slots"][slot]
-        if slot_data and slot_data.get("status") == "approved":
-            return await interaction.response.send_message("❌ Slot already approved.", ephemeral=True)
+            slot_data = data["slots"][slot]
+            if slot_data and slot_data.get("status") == "approved":
+                return await interaction.response.send_message("❌ Slot already approved.", ephemeral=True)
 
-        # Save pending booking
-        data["slots"][slot] = {"name": vtc_name, "status": "pending"}
+            # Save pending booking
+            data["slots"][slot] = {"name": vtc_name, "status": "pending"}
 
-        # Staff log
-        staff_channel = bot.get_channel(STAFF_LOG_CHANNEL_ID)
-        if staff_channel:
-            staff_embed = discord.Embed(
-                title="📌 New Slot Booking (Pending Approval)",
-                description=f"User: {interaction.user.mention}\nVTC Name: {vtc_name}\nSlot: {slot}",
-                color=discord.Color.orange(),
-                timestamp=datetime.utcnow()
+            # Staff log
+            staff_channel = bot.get_channel(STAFF_LOG_CHANNEL_ID)
+            if staff_channel:
+                staff_embed = discord.Embed(
+                    title="📌 New Slot Booking (Pending Approval)",
+                    description=f"User: {interaction.user.mention}\nVTC Name: {vtc_name}\nSlot: {slot}",
+                    color=discord.Color.orange(),
+                    timestamp=datetime.utcnow()
+                )
+                view = StaffActionView(interaction.user.id, slot, self.message_id)
+                await staff_channel.send(embed=staff_embed, view=view)
+                bot.add_view(view)  # persistent view
+
+            await interaction.response.send_message(
+                f"✅ You requested slot `{slot}` as `{vtc_name}`. Waiting for staff approval.",
+                ephemeral=True
             )
-            view = StaffActionView(interaction.user.id, slot, self.message_id)
-            staff_channel.send(embed=staff_embed, view=view)
-            bot.add_view(view)  # persistent view
 
-        await interaction.response.send_message(
-            f"✅ You requested slot `{slot}` as `{vtc_name}`. Waiting for staff approval.",
-            ephemeral=True
-        )
+        except Exception:
+            traceback.print_exc()
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Something went wrong. Try again.", ephemeral=True)
 
 # ============================================================
 #                     BOOK SLOT BUTTON VIEW
@@ -152,44 +158,50 @@ class StaffButton(discord.ui.Button):
         self.action = action
 
     async def callback(self, interaction: discord.Interaction):
-        data = booking_messages.get(self.view.message_id)
-        if not data:
-            return await interaction.response.send_message("❌ Booking not found.", ephemeral=True)
+        try:
+            data = booking_messages.get(self.view.message_id)
+            if not data:
+                return await interaction.response.send_message("❌ Booking not found.", ephemeral=True)
 
-        slots = data["slots"]
-        slot_data = slots.get(self.view.slot)
-        user = interaction.guild.get_member(self.view.user_id)
-        if not slot_data:
-            return await interaction.response.send_message("❌ Slot data missing.", ephemeral=True)
+            slots = data["slots"]
+            slot_data = slots.get(self.view.slot)
+            user = interaction.guild.get_member(self.view.user_id)
+            if not slot_data:
+                return await interaction.response.send_message("❌ Slot data missing.", ephemeral=True)
 
-        embed = data["message"].embeds[0]
+            embed = data["message"].embeds[0]
 
-        if self.action == "approve":
-            slot_data["status"] = "approved"
-            embed.description = "\n".join(
-                f"Slot {s}: {slots[s]['name'] if slots[s]['status']=='approved' else 'Available'}" for s in slots
-            )
-            await data["message"].edit(embed=embed)
-            try: await user.send(f"✅ Your slot `{self.view.slot}` has been approved!")
-            except: pass
-            await interaction.response.send_message(f"✅ Approved {user.mention}'s booking.", ephemeral=True)
+            if self.action == "approve":
+                slot_data["status"] = "approved"
+                embed.description = "\n".join(
+                    f"Slot {s}: {slots[s]['name'] if slots[s]['status']=='approved' else 'Available'}" for s in slots
+                )
+                await data["message"].edit(embed=embed)
+                try: await user.send(f"✅ Your slot `{self.view.slot}` has been approved!")
+                except: pass
+                await interaction.response.send_message(f"✅ Approved {user.mention}'s booking.", ephemeral=True)
 
-        elif self.action == "deny":
-            try: await user.send(f"❌ Your slot `{self.view.slot}` has been denied!")
-            except: pass
-            await interaction.response.send_message(f"❌ Deny DM sent to {user.mention}.", ephemeral=True)
+            elif self.action == "deny":
+                try: await user.send(f"❌ Your slot `{self.view.slot}` has been denied!")
+                except: pass
+                await interaction.response.send_message(f"❌ Deny DM sent to {user.mention}.", ephemeral=True)
 
-        elif self.action == "remove":
-            if slot_data.get("status") != "approved":
-                return await interaction.response.send_message("❌ No approval to remove.", ephemeral=True)
-            slot_data["status"] = "pending"
-            embed.description = "\n".join(
-                f"Slot {s}: {slots[s]['name'] if slots[s]['status']=='approved' else 'Available'}" for s in slots
-            )
-            await data["message"].edit(embed=embed)
-            try: await user.send(f"🗑 Your approval for slot `{self.view.slot}` has been removed!")
-            except: pass
-            await interaction.response.send_message(f"🗑 Removed approval for {user.mention}.", ephemeral=True)
+            elif self.action == "remove":
+                if slot_data.get("status") != "approved":
+                    return await interaction.response.send_message("❌ No approval to remove.", ephemeral=True)
+                slot_data["status"] = "pending"
+                embed.description = "\n".join(
+                    f"Slot {s}: {slots[s]['name'] if slots[s]['status']=='approved' else 'Available'}" for s in slots
+                )
+                await data["message"].edit(embed=embed)
+                try: await user.send(f"🗑 Your approval for slot `{self.view.slot}` has been removed!")
+                except: pass
+                await interaction.response.send_message(f"🗑 Removed approval for {user.mention}.", ephemeral=True)
+
+        except Exception:
+            traceback.print_exc()
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Something went wrong. Try again.", ephemeral=True)
 
 class StaffActionView(discord.ui.View):
     def __init__(self, user_id, slot, message_id):
