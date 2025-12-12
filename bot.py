@@ -1,4 +1,4 @@
-import aiohttp
+gimport aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -448,7 +448,7 @@ async def mark(interaction: discord.Interaction, event_link: str, channel: disco
     now_utc = datetime.now(timezone.utc)
     utc_str = now_utc.strftime("%H:%M UTC")
     npt_time = now_utc + timedelta(hours=5, minutes=45)
-    npt_str = npt_time.strftime("%H:%M NPT
+    npt_str = npt_time.strftime("%H:%M NPT")
     embed.set_footer(text=f"Powered by NepPath | {utc_str} | {npt_str}")
 
     # Add "I Will Be There" link button
