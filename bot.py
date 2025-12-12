@@ -254,8 +254,9 @@ async def create(interaction: discord.Interaction, channel: discord.TextChannel,
     if image:
         embed.set_image(url=image)
 
-    sent_msg = await channel.send(embed=embed, view=BookSlotView(None))
+    sent_msg = await channel.send(embed=embed)
     booking_messages[sent_msg.id] = {"message": sent_msg, "slots": {slot: None for slot in slots_list}}
+    await sent_msg.edit(view=BookSlotView(sent_msg.id))  # Corrected: pass real message_id
 
     await interaction.response.send_message(f"✅ Booking embed created with {len(slots_list)} slots.", ephemeral=True)
 
