@@ -1,5 +1,3 @@
-# bot.py — FULL
-
 import aiohttp
 import discord
 from discord import app_commands
@@ -268,8 +266,8 @@ async def create(interaction: discord.Interaction, title: str, slot_range: str, 
     slots = await parse_slot_range(slot_range)
     if not slots:
         return await interaction.response.send_message("❌ Invalid slot range.", ephemeral=True)
-    color_parsed = parse_color(color)
-    embed = discord.Embed(title=title, color=color_parsed or discord.Color.blue())
+    color_parsed = parse_color(color) or discord.Color.blue()
+    embed = discord.Embed(title=title, color=color_parsed)
     embed.add_field(name="Slots", value="\n".join([f"**{s}:** *Available*" for s in slots]), inline=False)
     if banner:
         embed.set_image(url=banner)
@@ -279,18 +277,9 @@ async def create(interaction: discord.Interaction, title: str, slot_range: str, 
     msg.view.children[0].message_id = msg.id
     await msg.edit(view=msg.view)
 
-# ---------- Mark Attendance Button ----------
-class MarkAttendanceButton(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="✅ I Will Be There", style=discord.ButtonStyle.green, custom_id="attendance_mark")
-    async def mark_attendance(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("🎉 Thank you! Your attendance has been marked.", ephemeral=True)
-
 # ---------- /mark COMMAND ----------
 @bot.tree.command(name="mark", description="Create attendance embed from TruckersMP")
-@app_commands.describe(event_link="TruckersMP event link", channel="Where to send the embed", color="Optional embed color", mention_role="Optional role to ping")
+@app_commands.describe(event_link="TruckersMP event link", channel="Channel to send embed", color="Optional embed color", mention_role="Optional role to ping")
 async def mark(interaction: discord.Interaction, event_link: str, channel: discord.TextChannel, color: str = None, mention_role: discord.Role = None):
     if not is_staff_member(interaction.user):
         return await interaction.response.send_message("❌ You're not allowed.", ephemeral=True)
@@ -318,23 +307,30 @@ async def mark(interaction: discord.Interaction, event_link: str, channel: disco
     except:
         meetup_dt = datetime.utcnow().replace(tzinfo=timezone.utc)
     color_parsed = parse_color(color) or discord.Color.blue()
-    embed = discord.Embed(title=title, description="**🙏 𝐏𝐥𝐳 𝐊𝐢𝐧𝐝𝐥𝐲 𝐌𝐚𝐫𝐤 𝐘𝐨𝐮𝐑 𝐀𝐭𝐭𝐞𝐧𝐝𝐚𝐧𝐜𝐞 𝐎𝐧 𝐓𝐡𝐢𝐒 𝐄𝐯𝐞𝐧𝐭 : ❤️**", color=color_parsed, timestamp=meetup_dt)
+    embed = discord.Embed(
+        title=title,
+        description="**🙏 𝐏𝐥𝐳 𝐊𝐢𝐧𝐝𝐥𝐲 𝐌𝐚𝐫𝐤 𝐘𝐨𝐮𝐑 𝐀𝐭𝐭𝐞𝐧𝐝𝐚𝐧𝐜𝐞 𝐎𝐧 𝐓𝐡𝐢𝐒 𝐄𝐯𝐞𝐧𝐭 : ❤️**",
+        color=color_parsed,
+        timestamp=meetup_dt
+    )
     if banner:
         embed.set_image(url=banner)
     if avatar:
         embed.set_thumbnail(url=avatar)
     embed.set_footer(text="Powered by NepPath")
     mention_text = mention_role.mention if mention_role else ""
-class MarkAttendanceLink(discord.ui.View):
-    def __init__(self, url: str):
-        super().__init__(timeout=None)
-        self.add_item(
-            discord.ui.Button(
-                label="✅ I Will Be There",
-                style=discord.ButtonStyle.link,
-                url=url
+
+    # Link button to event
+    class MarkAttendanceLink(discord.ui.View):
+        def __init__(self, url: str):
+            super().__init__(timeout=None)
+            self.add_item(
+                discord.ui.Button(
+                    label="✅ I Will Be There",
+                    style=discord.ButtonStyle.link,
+                    url=url
+                )
             )
-        )
 
     await channel.send(content=mention_text, embed=embed, view=MarkAttendanceLink(event_link))
     await interaction.followup.send("✅ Attendance embed sent!", ephemeral=True)
