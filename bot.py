@@ -93,13 +93,13 @@ class BookSlotModal(discord.ui.Modal, title="Book a Slot"):
             if not channel:
                 return await interaction.response.send_message("❌ Channel not found.", ephemeral=True)
 
-            # Fetch the original booking message
-            msg = await channel.fetch_message(self.message_id)
-            if not msg:
+            try:
+                msg = await channel.fetch_message(self.message_id)
+            except discord.NotFound:
                 return await interaction.response.send_message("❌ Booking message not found.", ephemeral=True)
 
             data = booking_messages.get(self.message_id)
-            if not data:
+            if not data or "slots" not in data:
                 return await interaction.response.send_message("❌ Booking data missing.", ephemeral=True)
 
             slot = self.slot_number.value.strip()
@@ -171,15 +171,16 @@ class StaffButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         try:
             data = booking_messages.get(self.view.message_id)
-            if not data:
+            if not data or "slots" not in data:
                 return await interaction.response.send_message("❌ Booking data not found.", ephemeral=True)
 
             channel = bot.get_channel(self.view.channel_id)
             if not channel:
                 return await interaction.response.send_message("❌ Channel not found.", ephemeral=True)
 
-            msg = await channel.fetch_message(self.view.message_id)
-            if not msg:
+            try:
+                msg = await channel.fetch_message(self.view.message_id)
+            except discord.NotFound:
                 return await interaction.response.send_message("❌ Booking message not found.", ephemeral=True)
 
             slots = data["slots"]
@@ -189,7 +190,10 @@ class StaffButton(discord.ui.Button):
             if not slot_data:
                 return await interaction.response.send_message("❌ Slot data missing.", ephemeral=True)
 
-            embed = msg.embeds[0]
+            try:
+                embed = msg.embeds[0]
+            except IndexError:
+                embed = discord.Embed(title="Booking Slots", description="", color=discord.Color.blue())
 
             if self.action == "approve":
                 slot_data["status"] = "approved"
