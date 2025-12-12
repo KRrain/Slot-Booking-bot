@@ -198,7 +198,6 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
             )
 
 # ---------------- End of Part 1 ----------------
-
 # ---------------- bot.py — Part 2 ----------------
 
 # ---------- Book Slot Button ----------
@@ -399,21 +398,22 @@ async def create(interaction: discord.Interaction, channel: discord.TextChannel,
 
     await interaction.response.send_message(f"✅ Booking embed created with {len(slots_list)} slots.", ephemeral=True)
 
-# ---------- /mark ----------
+
+# ---------- /mark with optional role mention ----------
 
 class MarkAttendanceView(discord.ui.View):
     def __init__(self, event_link: str):
         super().__init__(timeout=None)
-        # Link button to open the TruckersMP event page
         self.add_item(discord.ui.Button(label='I Will Be There', style=discord.ButtonStyle.link, url=event_link))
 
 @bot.tree.command(name="mark", description="Staff only: Create a Mark Attendance embed from a TruckersMP event link.")
 @app_commands.describe(
     event_link="TruckersMP event URL, e.g. https://truckersmp.com/events/12345",
     channel="Channel to post the embed",
-    color="Embed color name or hex (optional)"
+    color="Embed color name or hex (optional)",
+    mention_role="Optional role to mention"
 )
-async def mark(interaction: discord.Interaction, event_link: str, channel: discord.TextChannel, color: str = "blue"):
+async def mark(interaction: discord.Interaction, event_link: str, channel: discord.TextChannel, color: str = "blue", mention_role: discord.Role = None):
     if not is_staff_member(interaction.user):
         return await interaction.response.send_message("❌ You are not staff.", ephemeral=True)
 
@@ -481,7 +481,11 @@ async def mark(interaction: discord.Interaction, event_link: str, channel: disco
     embed.set_footer(text=footer_text)
 
     view = MarkAttendanceView(event_link=event_link)
-    await channel.send(embed=embed, view=view)
+
+    # Mention role if selected
+    content = mention_role.mention if mention_role else None
+
+    await channel.send(content=content, embed=embed, view=view)
     await interaction.followup.send(f"✅ Attendance embed sent to {channel.mention}", ephemeral=True)
 
 # ---------------- End of Part 3 ----------------
