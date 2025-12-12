@@ -49,16 +49,25 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ============================================================
 
 def parse_color(input_color: str):
-    """Parse named or hex color."""
+    """Parse named, hex (with or without #), or RGB color."""
     if not input_color:
         return None
 
-    input_color = input_color.lower()
+    input_color = input_color.lower().strip()
 
+    # Named colors
     if input_color in COLOR_OPTIONS:
         return COLOR_OPTIONS[input_color]
 
-    if input_color.startswith("#"):
+    # Hex without # (add # back)
+    if re.fullmatch(r"[0-9a-f]{6}", input_color):
+        try:
+            return discord.Color(int(input_color, 16))
+        except:
+            return None
+
+    # Hex with #
+    if input_color.startswith("#") and re.fullmatch(r"#[0-9a-f]{6}", input_color):
         try:
             return discord.Color(int(input_color[1:], 16))
         except:
