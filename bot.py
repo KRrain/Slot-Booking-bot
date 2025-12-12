@@ -6,7 +6,7 @@ from discord import app_commands
 from discord.ext import commands
 import re
 import traceback
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 
@@ -61,11 +61,9 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     except Exception:
         pass
 
-
 # ---------- In-memory storage ----------
 booking_messages = {}  # {message_id: {"message": Message, "slots": {slot: vtc_name}}}
 user_submissions = {}  # {guild_id: {user_id: set(slots)}}
-
 
 # ---------- Helpers ----------
 def is_staff_member(member: discord.Member) -> bool:
@@ -93,7 +91,6 @@ def parse_color(color_str: str):
         return discord.Color(int(color_str, 16))
     except Exception:
         return None
-
 
 # ---------- Slot Booking Modal ----------
 class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
@@ -218,8 +215,6 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
                 "❌ An internal error occurred while processing your booking.",
                 ephemeral=True,
             )
-
-
 # ---------- Book Slot Button ----------
 class BookSlotView(discord.ui.View):
     def __init__(self):
@@ -233,8 +228,7 @@ class BookSlotView(discord.ui.View):
 
             if not data:
                 return await interaction.response.send_message(
-                    "❌ This button is not attached to a valid booking message.\n"
-                    "Create a new booking with `/create` for this block of slots.",
+                    "❌ This button is not attached to a valid booking message.\nCreate a new booking with `/create` for this block of slots.",
                     ephemeral=True,
                 )
 
@@ -257,7 +251,7 @@ class BookSlotView(discord.ui.View):
                 )
 
 
-# ---------- Staff Approve/Deny/Remove ----------
+# ---------- Approve/Deny/Remove Approval ----------
 class ApproveDenyView(discord.ui.View):
     def __init__(self, user_id: int, vtc_name: str, slot_number: str, message_id: int, guild_id: int):
         super().__init__()
@@ -405,25 +399,20 @@ async def create(interaction: discord.Interaction, channel: discord.TextChannel,
     await interaction.response.send_message(f"✅ Booking embed created with {len(slots_list)} slots.", ephemeral=True)
 
 
-# ---------- Mark Attendance ----------
+# ---------- /mark ----------
 class MarkAttendanceView(discord.ui.View):
     def __init__(self, event_link: str):
         super().__init__(timeout=None)
-        self.add_item(
-            discord.ui.Button(
-                label='I Will Be There',
-                style=discord.ButtonStyle.link,
-                url=event_link,
-            )
-        )
+        self.add_item(discord.ui.Button(label='I Will Be There', style=discord.ButtonStyle.link, url=event_link))
 
 
 @bot.tree.command(name="mark", description="Staff only: Create a Mark Attendance embed from a TruckersMP event link.")
 @app_commands.describe(
     event_link="TruckersMP event URL, e.g. https://truckersmp.com/events/12345",
+    channel="Channel to post the embed",
     color="Embed color name or hex (optional)"
 )
-async def mark(interaction: discord.Interaction, event_link: str, color: str = "blue"):
+async def mark(interaction: discord.Interaction, event_link: str, channel: discord.TextChannel, color: str = "blue"):
     if not is_staff_member(interaction.user):
         return await interaction.response.send_message("❌ You are not staff.", ephemeral=True)
 
@@ -458,7 +447,6 @@ async def mark(interaction: discord.Interaction, event_link: str, color: str = "
 
     embed_color = parse_color(color) or discord.Color.blue()
 
-    # Auto fetch date/time UTC and convert to NPT
     if event_start:
         dt = datetime.fromisoformat(event_start)
         utc_str = dt.strftime("%d %b %Y / %H:%M UTC")
@@ -480,8 +468,10 @@ async def mark(interaction: discord.Interaction, event_link: str, color: str = "
         embed.set_thumbnail(url=vtc_avatar)
 
     embed.set_footer(text="Powered by NepPath")
+
     view = MarkAttendanceView(event_link=event_link)
-    await interaction.followup.send(embed=embed, view=view)
+    await channel.send(embed=embed, view=view)
+    await interaction.followup.send(f"✅ Attendance embed sent to {channel.mention}", ephemeral=True)
 
 
 # ---------- Bot Ready ----------
