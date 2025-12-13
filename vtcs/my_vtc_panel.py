@@ -6,7 +6,8 @@ from datetime import datetime
 import aiohttp
 import os
 
-NEPPATH_VTC_ID = int(os.getenv("NEPPATH_VTC_ID", 81586))  # Set your VTC ID in .env
+# VTC ID from environment
+NEPPATH_VTC_ID = int(os.getenv("NEPPATH_VTC_ID", 81586))
 
 # ---------- Button Callback ----------
 async def neppath_event_callback(interaction: discord.Interaction):
@@ -30,21 +31,22 @@ async def neppath_event_callback(interaction: discord.Interaction):
     # Show first event
     event = events[0]
     embed = discord.Embed(
-        title=f"NepPath Upcoming Event",
-        description=f"**Date:** {event.get('date')}\n"
-                    f"**Game:** {event.get('game')}\n"
-                    f"**Event Type:** {event.get('eventType')}\n"
-                    f"**Server:** {event.get('server')}\n"
-                    f"**Attending:** {event.get('attending')}\n"
-                    f"**Unsure:** {event.get('unsure')}\n"
-                    f"**VTCs Attending:** {event.get('vtcsAttending')}",
-        color=discord.Color.from_rgb(255, 90, 32),  # #FF5A20
+        title="NepPath Upcoming Event",
+        description=(
+            f"**Date:** {event.get('date')}\n"
+            f"**Game:** {event.get('game')}\n"
+            f"**Event Type:** {event.get('eventType')}\n"
+            f"**Server:** {event.get('server')}\n"
+            f"**Attending:** {event.get('attending')}\n"
+            f"**Unsure:** {event.get('unsure')}\n"
+            f"**VTCs Attending:** {event.get('vtcsAttending')}"
+        ),
+        color=discord.Color.from_rgb(255, 90, 32),
         timestamp=datetime.utcnow()
     )
     embed.set_footer(text=f"Total Upcoming Events: {len(events)} | NepPath")
 
     await interaction.followup.send(embed=embed, ephemeral=True)
-
 
 # ---------- Button View ----------
 class MyVTCView(View):
@@ -53,7 +55,6 @@ class MyVTCView(View):
         button = Button(label="NepPath Upcoming Event", style=discord.ButtonStyle.orange, custom_id="neppath_event")
         button.callback = neppath_event_callback
         self.add_item(button)
-
 
 # ---------- Setup Function ----------
 def setup_my_vtc(bot):
