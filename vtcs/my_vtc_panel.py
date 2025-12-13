@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 load_dotenv()
 NEPPATH_VTC_ID = int(os.getenv("NEPPATH_VTC_ID"))
 
+def setup_my_vtc(bot):
+    ..,
+
 class MyVTCView(View):
     def __init__(self):
         super().__init__(timeout=None)
