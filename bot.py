@@ -40,6 +40,15 @@ COLOR_OPTIONS = {
 }
 
 # ---------------- INTENTS ----------------
+def get_user_vtc_name(user_id: int) -> str:
+    # Example mapping: replace with your actual logic
+    from bot import booking_messages
+    for data in booking_messages.values():
+        for slot, vtc_name in data.get("slots", {}).items():
+            if vtc_name:  # Just return first match
+                return vtc_name
+    return None
+    
 def is_staff_member(member: discord.Member) -> bool:
     try:
         return any(role.id in STAFF_ROLE_IDS for role in member.roles)
@@ -82,14 +91,6 @@ booking_messages = {}  # {message_id: {"message": Message, "slots": {slot: vtc_n
 user_submissions = {}  # {guild_id: {user_id: set(slots)}}
 
 # ---------- Helpers ----------
-def get_user_vtc_name(user_id: int) -> str:
-    # Example mapping: replace with your actual logic
-    from bot import booking_messages
-    for data in booking_messages.values():
-        for slot, vtc_name in data.get("slots", {}).items():
-            if vtc_name:  # Just return first match
-                return vtc_name
-    return None
 
 def is_staff_member(member: discord.Member) -> bool:
     """Return True if the member has any of the STAFF_ROLE_IDS."""
