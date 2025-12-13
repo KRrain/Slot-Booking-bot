@@ -9,7 +9,7 @@ import traceback
 from datetime import datetime, timedelta, timezone
 import os
 from dotenv import load_dotenv
-from ac.decline import setup_decline_command
+from decline import setup_decline_command
 
 # ---------------- CONFIG ----------------
 
