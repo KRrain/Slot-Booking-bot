@@ -560,17 +560,6 @@ async def on_ready():
         print(f"✅ Synced {len(synced)} commands globally.")
     except Exception as e:
         print("❌ Failed to sync commands:", e)
-
-@bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user} ({bot.user.id})")
-    try:
-        await load_cogs()           # Load all Cogs here
-        synced = await bot.tree.sync()
-        print(f"✅ Synced {len(synced)} commands globally.")
-    except Exception as e:
-        print("❌ Failed to sync commands:", e)
-
 # ---------- Run Bot ----------
 
 if not BOT_TOKEN:
