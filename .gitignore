@@ -9,6 +9,3 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
-
-# Cog cache only
-.cogs/__pycache__/
