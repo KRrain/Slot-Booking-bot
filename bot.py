@@ -54,7 +54,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ---------- Setup modular commands ----------
 setup_review_command(bot, is_staff_member)
 setup_decline_command(bot, is_staff_member)
-setup_vtcinfo_command(bot, is_staff_member
+setup_vtcinfo_command(bot, is_staff_member)
 
 # ---------- Global error handlers ----------
 
