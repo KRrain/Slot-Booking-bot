@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from ac.decline import setup_decline_command
 from ac.review import setup_review_command
 from vtcs.vtc import setup_vtc_command
+from vtcs.upcoming import setup_upcoming
 
 # ---------------- CONFIG ----------------
 
@@ -55,6 +56,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 setup_review_command(bot, is_staff_member)
 setup_decline_command(bot, is_staff_member)
 setup_vtc_command(bot)
+setup_upcoming(bot, get_user_vtc_name)
 # ---------- Global error handlers ----------
 
 @bot.event
@@ -80,6 +82,14 @@ booking_messages = {}  # {message_id: {"message": Message, "slots": {slot: vtc_n
 user_submissions = {}  # {guild_id: {user_id: set(slots)}}
 
 # ---------- Helpers ----------
+def get_user_vtc_name(user_id: int) -> str:
+    # Example mapping: replace with your actual logic
+    from bot import booking_messages
+    for data in booking_messages.values():
+        for slot, vtc_name in data.get("slots", {}).items():
+            if vtc_name:  # Just return first match
+                return vtc_name
+    return None
 
 def is_staff_member(member: discord.Member) -> bool:
     """Return True if the member has any of the STAFF_ROLE_IDS."""
