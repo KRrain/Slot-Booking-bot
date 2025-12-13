@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from ac.decline import setup_decline_command
 from ac.review import setup_review_command
 from vtcs.vtc import setup_vtc_command
-from vtcs.neppath_events import setup_neppath_events
+from neppath_events import setup_neppath_events
 # ---------------- CONFIG ----------------
 
 load_dotenv()
