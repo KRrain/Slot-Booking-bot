@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from ac.decline import setup_decline_command
 from ac.review import setup_review_command
 from vtcs.vtc import setup_vtc_command
-from vtcs.myvtc import setup_myvtc_commands
+from vtcs.myvtc import setup_myvtc_command
 
 # ---------------- CONFIG ----------------
 
