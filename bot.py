@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import os
 from dotenv import load_dotenv
 from decline import setup_decline_command
+from ac.review import setup_review_command
 
 # ---------------- CONFIG ----------------
 
@@ -37,6 +38,11 @@ COLOR_OPTIONS = {
 }
 
 # ---------------- INTENTS ----------------
+def is_staff_member(member: discord.Member) -> bool:
+    try:
+        return any(role.id in STAFF_ROLE_IDS for role in member.roles)
+    except:
+        return False
 
 intents = discord.Intents.default()
 intents.guilds = True
@@ -44,6 +50,8 @@ intents.members = True
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+# ---------- Setup modular commands ----------
+setup_review_command(bot, is_staff_member)
 
 # ---------- Global error handlers ----------
 
