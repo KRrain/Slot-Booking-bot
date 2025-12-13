@@ -488,6 +488,50 @@ async def mark(interaction: discord.Interaction, event_link: str, channel: disco
     await channel.send(content=content, embed=embed, view=view)
     await interaction.followup.send(f"✅ Attendance embed sent to {channel.mention}", ephemeral=True)
 
+# ---------- /accepted ----------
+
+@bot.tree.command(name="accepted", description="Staff only: Send invitation accepted embed.")
+@app_commands.describe(
+    vtc_name="VTC Name",
+    user="User to mention",
+    slot_number="Approved slot number"
+)
+async def accepted(
+    interaction: discord.Interaction,
+    vtc_name: str,
+    user: discord.Member,
+    slot_number: str
+):
+    if not is_staff_member(interaction.user):
+        return await interaction.response.send_message("❌ You are not staff.", ephemeral=True)
+
+    embed = discord.Embed(
+        title="🟢 Invitation Accepted",
+        description=(
+            f"Dear **{vtc_name}**, {user.mention} 🙏\n\n"
+            f"🟢 𝙄𝙣𝙫𝙞𝙩𝙖𝙩𝙞𝙤𝙣 𝙝𝙖𝙨 𝙗𝙚𝙚𝙣 𝘼𝙘𝙘𝙚𝙥𝙩𝙚𝙙. ♥️\n\n"
+            f"We sincerely thank you for inviting **NepPath** to participate in your event. "
+            f"We are pleased to confirm our attendance and look forward to being part of this valuable opportunity.\n\n"
+            f"**🛷 Slot Requested: {slot_number}**  \n"
+            f"Kindly confirm our slot.\n\n"
+            f"<:calendar1:1398462389623586847>  **Your Event Marked Down Here: ⤵️ **\n"
+            f"https://discord.com/channels/1395555672946643005/1396109795370471424\n\n"
+            f"Should you require any further information or assistance, please feel free to contact us.\n\n"
+            f"<a:red_arrow:1396694832121905295> "
+            f"If done: Plz Kindly send a ticket close confirmation. 🔒\n\n"
+            f"---\n\n"
+            f"Best regards,\n"
+            f"**NepPath**"
+        ),
+        color=discord.Color.green(),
+        timestamp=datetime.utcnow()
+    )
+
+    embed.set_footer(text="NepPath")
+
+    await interaction.channel.send(embed=embed)
+    await interaction.response.send_message("✅ Acceptance embed sent.", ephemeral=True)
+
 # ---------------- End of Part 3 ----------------
 # ---------------- bot.py — Part 4 ----------------
 
