@@ -9,7 +9,7 @@ import traceback
 from datetime import datetime, timedelta, timezone
 import os
 from dotenv import load_dotenv
-from decline import setup_decline_command
+from ac.decline import setup_decline_command
 from ac.review import setup_review_command
 
 # ---------------- CONFIG ----------------
@@ -52,6 +52,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 # ---------- Setup modular commands ----------
 setup_review_command(bot, is_staff_member)
+setup_decline_command(bot, is_staff_member)
 
 # ---------- Global error handlers ----------
 
@@ -552,19 +553,6 @@ async def accepted(
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user} ({bot.user.id})")
-    try:
-        synced = await bot.tree.sync()
-        print(f"✅ Synced {len(synced)} commands globally.")
-    except Exception as e:
-        print("❌ Failed to sync commands:", e)
-
-@bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user} ({bot.user.id})")
-
-    # Register external commands
-    setup_decline_command(bot, is_staff_member)
-
     try:
         synced = await bot.tree.sync()
         print(f"✅ Synced {len(synced)} commands globally.")
