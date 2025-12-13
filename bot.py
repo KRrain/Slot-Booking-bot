@@ -54,6 +54,10 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 setup_review_command(bot, is_staff_member)
 setup_decline_command(bot, is_staff_member)
 
+# ---------- Load Cogs ----------
+async def load_cogs():
+    await bot.load_extension("cog.vtcinfo")   # Your VTCInfo Cog
+
 # ---------- Global error handlers ----------
 
 @bot.event
@@ -554,6 +558,16 @@ async def accepted(
 async def on_ready():
     print(f"✅ Logged in as {bot.user} ({bot.user.id})")
     try:
+        synced = await bot.tree.sync()
+        print(f"✅ Synced {len(synced)} commands globally.")
+    except Exception as e:
+        print("❌ Failed to sync commands:", e)
+
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user} ({bot.user.id})")
+    try:
+        await load_cogs()           # Load all Cogs here
         synced = await bot.tree.sync()
         print(f"✅ Synced {len(synced)} commands globally.")
     except Exception as e:
