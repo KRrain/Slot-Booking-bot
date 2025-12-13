@@ -44,8 +44,6 @@ intents.members = True
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-# ---------- Load decline commands ----------
-setup_decline_command(bot, is_staff_member)
 
 # ---------- Global error handlers ----------
 
