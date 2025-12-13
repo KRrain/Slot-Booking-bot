@@ -566,8 +566,14 @@ async def on_ready():
 
 @bot.event
 async def on_ready():
-    setup_decline_time_command(bot, is_staff_member)
-    # then sync commands
+    print(f"✅ Logged in as {bot.user}")
+
+    # register command
+    setup_decline_time_command(bot)
+
+    # sync commands
+    synced = await bot.tree.sync()
+    print(f"✅ Synced {len(synced)} commands")
 
 # ---------- Run Bot ----------
 
