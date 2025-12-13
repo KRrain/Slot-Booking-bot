@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from ac.decline import setup_decline_command
 from ac.review import setup_review_command
 from vtcs.vtc import setup_vtc_command
+from vtcs.myvtc import setup_myvtc_commands
 
 # ---------------- CONFIG ----------------
 
@@ -55,6 +56,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 setup_review_command(bot, is_staff_member)
 setup_decline_command(bot, is_staff_member)
 setup_vtc_command(bot)
+setup_myvtc_commands(bot)
 
 # ---------- Global error handlers ----------
 
