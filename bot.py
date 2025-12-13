@@ -1,4 +1,5 @@
 # ---------------- bot.py — Part 1 ----------------
+
 import aiohttp
 import discord
 from discord import app_commands
@@ -10,9 +11,9 @@ import os
 from dotenv import load_dotenv
 
 # ---------------- CONFIG ----------------
+
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-GUILD_ID = int(os.getenv("GUILD_ID"))  # Guild ID for guild-specific commands
 
 STAFF_ROLE_IDS = [
     1395579577555878012,
@@ -35,6 +36,7 @@ COLOR_OPTIONS = {
 }
 
 # ---------------- INTENTS ----------------
+
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
@@ -43,6 +45,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ---------- Global error handlers ----------
+
 @bot.event
 async def on_error(event_method, *args, **kwargs):
     print(f"Error in {event_method}:")
@@ -60,17 +63,22 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         pass
 
 # ---------- In-memory storage ----------
+
+# Note: in-memory only — consider persisting for production
 booking_messages = {}  # {message_id: {"message": Message, "slots": {slot: vtc_name}}}
 user_submissions = {}  # {guild_id: {user_id: set(slots)}}
 
 # ---------- Helpers ----------
+
 def is_staff_member(member: discord.Member) -> bool:
+    """Return True if the member has any of the STAFF_ROLE_IDS."""
     try:
         return any(role.id in STAFF_ROLE_IDS for role in member.roles)
     except Exception:
         return False
 
 async def parse_slot_range(slot_range: str):
+    """Parse a simple range like "1-10" into ["Slot 1", ..., "Slot 10"]."""
     try:
         start_str, end_str = slot_range.split("-")
         start = int(start_str)
@@ -82,6 +90,7 @@ async def parse_slot_range(slot_range: str):
         return None
 
 def parse_color(color_str: str):
+    """Accept named colors (from COLOR_OPTIONS) or hex like "#ff0000" or "ff0000"."""
     if not color_str:
         return None
     try:
@@ -94,6 +103,7 @@ def parse_color(color_str: str):
         return None
 
 # ---------- Slot Booking Modal ----------
+
 class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
     vtc_name = discord.ui.TextInput(label="VTC Name", placeholder="Enter your VTC name", max_length=100)
     slot_number = discord.ui.TextInput(label="Slot Number", placeholder="Enter slot number like: 1", max_length=3)
@@ -101,6 +111,7 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
     def __init__(self, message_id: int):
         super().__init__()
         self.message_id = message_id
+
         data = booking_messages.get(message_id)
         slots_dict = (data or {}).get("slots", {})
         available = [s.replace("Slot ", "") for s, v in slots_dict.items() if not v]
@@ -120,11 +131,13 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
         try:
             msg_id = self.message_id
             data = booking_messages.get(msg_id)
+
             if not data:
                 return await interaction.response.send_message("❌ Booking data not found.", ephemeral=True)
 
             slots_dict = data["slots"]
             raw = self.slot_number.value.strip()
+
             if not raw.isdigit():
                 return await interaction.response.send_message(
                     "❌ Slot number must be a **number only**, like `1`.", ephemeral=True
@@ -145,12 +158,16 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
             if guild_id not in user_submissions:
                 user_submissions[guild_id] = {}
 
+            # Prevent duplicate request by same user for same slot
             if user_id in user_submissions[guild_id] and slot_name in user_submissions[guild_id][user_id]:
                 return await interaction.response.send_message(f"❌ You already submitted slot `{raw}`.", ephemeral=True)
 
+            # Save user request
             user_submissions[guild_id].setdefault(user_id, set()).add(slot_name)
+
             await interaction.response.send_message(f"✅ Request submitted for slot **{slot_id}**", ephemeral=True)
 
+            # Log to staff channel (if available)
             log_channel = bot.get_channel(STAFF_LOG_CHANNEL_ID)
             if log_channel:
                 embed = discord.Embed(title="📥 Slot Booking Request", color=discord.Color.orange())
@@ -173,7 +190,7 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
             if not interaction.response.is_done():
                 await interaction.response.send_message("❌ Error while processing booking.", ephemeral=True)
 
-    async def on_error(self, interaction: discord.Interaction, error: Exception):
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
         traceback.print_exc()
         if not interaction.response.is_done():
             await interaction.response.send_message(
@@ -184,6 +201,7 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
 # ---------------- bot.py — Part 2 ----------------
 
 # ---------- Book Slot Button ----------
+
 class BookSlotView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -193,6 +211,7 @@ class BookSlotView(discord.ui.View):
         try:
             msg_id = interaction.message.id
             data = booking_messages.get(msg_id)
+
             if not data:
                 return await interaction.response.send_message(
                     "❌ This button is not attached to a valid booking message.\nCreate a new booking with `/create` for this block of slots.",
@@ -211,8 +230,8 @@ class BookSlotView(discord.ui.View):
             if not interaction.response.is_done():
                 await interaction.response.send_message("❌ An internal error occurred when opening the booking modal.", ephemeral=True)
 
-
 # ---------- Approve/Deny/Remove Approval ----------
+
 class ApproveDenyView(discord.ui.View):
     def __init__(self, user_id: int, vtc_name: str, slot_number: str, message_id: int, guild_id: int):
         super().__init__()
@@ -246,10 +265,12 @@ class ApproveDenyView(discord.ui.View):
             if slots_dict.get(self.slot_number):
                 return await interaction.response.send_message("❌ Slot already approved.", ephemeral=True)
 
+            # Approve
             slots_dict[self.slot_number] = self.vtc_name
             if self.user_id in user_submissions.get(self.guild_id, {}):
                 user_submissions[self.guild_id][self.user_id].discard(self.slot_number)
 
+            # Update main embed if exists
             original_msg = data["message"]
             if original_msg and original_msg.embeds:
                 new_embed = original_msg.embeds[0]
@@ -260,6 +281,7 @@ class ApproveDenyView(discord.ui.View):
                 except Exception:
                     pass
 
+            # Update staff log message embed
             try:
                 embed = interaction.message.embeds[0]
                 embed.color = discord.Color.green()
@@ -319,8 +341,10 @@ class ApproveDenyView(discord.ui.View):
             if not slots_dict.get(self.slot_number):
                 return await interaction.response.send_message("❌ Slot is not approved.", ephemeral=True)
 
+            # Remove approval
             slots_dict[self.slot_number] = None
 
+            # Update main embed if exists
             original_msg = data["message"]
             if original_msg and original_msg.embeds:
                 new_embed = original_msg.embeds[0]
@@ -341,14 +365,10 @@ class ApproveDenyView(discord.ui.View):
 
 # ---------------- End of Part 2 ----------------
 # ---------------- bot.py — Part 3 ----------------
-guild_obj = discord.Object(id=GUILD_ID)
 
 # ---------- /create ----------
-@bot.tree.command(
-    name="create",
-    description="Staff only: Create booking message.",
-    guild=guild_obj
-)
+
+@bot.tree.command(name="create", description="Staff only: Create booking message.")
 @app_commands.describe(
     channel="Channel to post booking embed",
     title="Embed title",
@@ -379,24 +399,27 @@ async def create(interaction: discord.Interaction, channel: discord.TextChannel,
     await interaction.response.send_message(f"✅ Booking embed created with {len(slots_list)} slots.", ephemeral=True)
 
 
-# ---------- /mark ----------
-@bot.tree.command(
-    name="mark",
-    description="Staff only: Create a Mark Attendance embed from a TruckersMP event link.",
-    guild=guild_obj
-)
+# ---------- /mark with optional role mention ----------
+
+class MarkAttendanceView(discord.ui.View):
+    def __init__(self, event_link: str):
+        super().__init__(timeout=None)
+        self.add_item(discord.ui.Button(label='I Will Be There', style=discord.ButtonStyle.link, url=event_link))
+
+@bot.tree.command(name="mark", description="Staff only: Create a Mark Attendance embed from a TruckersMP event link.")
 @app_commands.describe(
     event_link="TruckersMP event URL, e.g. https://truckersmp.com/events/12345",
     channel="Channel to post the embed",
-    role="Optional: Mention a role",
-    color="Embed color name or hex (optional)"
+    color="Embed color name or hex (optional)",
+    mention_role="Optional role to mention"
 )
-async def mark(interaction: discord.Interaction, event_link: str, channel: discord.TextChannel, role: discord.Role = None, color: str = "blue"):
+async def mark(interaction: discord.Interaction, event_link: str, channel: discord.TextChannel, color: str = "blue", mention_role: discord.Role = None):
     if not is_staff_member(interaction.user):
         return await interaction.response.send_message("❌ You are not staff.", ephemeral=True)
 
     await interaction.response.defer(thinking=True, ephemeral=True)
 
+    # Extract numeric event id
     match = re.search(r"/events/(\d+)", event_link)
     if not match:
         return await interaction.followup.send("❌ Could not find an event ID in that link.", ephemeral=True)
@@ -404,6 +427,7 @@ async def mark(interaction: discord.Interaction, event_link: str, channel: disco
     event_id = match.group(1)
     api_url = f"https://api.truckersmp.com/v2/events/{event_id}"
 
+    # Fetch from TruckersMP API
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url) as resp:
@@ -419,84 +443,70 @@ async def mark(interaction: discord.Interaction, event_link: str, channel: disco
 
     event_info = data["response"]
     event_name = event_info.get("name", "TruckersMP Event")
+
+    # Fetch meetupDateTime
+    event_start = event_info.get("meetupDateTime")
     event_banner = event_info.get("banner")
     event_vtc = event_info.get("creator")
-    vtc_avatar = event_vtc.get("avatar") if isinstance(event_vtc, dict) else None
+    vtc_avatar = None
+    if isinstance(event_vtc, dict):
+        vtc_avatar = event_vtc.get("avatar") or event_vtc.get("logo")
 
     embed_color = parse_color(color) or discord.Color.blue()
 
+    # Format footer timestamp
+    footer_text = "Powered by NepPath"
+    if event_start:
+        evt = event_start.rstrip("Z")
+        try:
+            dt = datetime.fromisoformat(evt).replace(tzinfo=timezone.utc)
+            utc_str = dt.strftime("%H:%M UTC")
+            npt_dt = dt + timedelta(hours=5, minutes=45)
+            npt_str = npt_dt.strftime("%H:%M NPT")
+            footer_text = f"Powered by NepPath | {utc_str} | {npt_str}"
+        except Exception:
+            pass
+
     embed = discord.Embed(
         title=event_name,
-        description=f"**🙏 𝐏𝐥𝐳 𝐊𝐢𝐧𝐝𝐥𝐲 𝐌𝐚𝐫𝐤 𝐘𝐨𝐮𝐑 𝐀𝐭𝐭𝐞𝐧𝐝𝐚𝐧𝐜𝐞 𝐎𝐧 𝐓𝐡𝐢𝐬 𝐄𝐯𝐞𝐧𝐭 : ❤️**",
+        description="**🙏 𝐏𝐥𝐳 𝐊𝐢𝐧𝐝𝐥𝐲 𝐌𝐚𝐫𝐤 𝐘𝐨𝐔𝐑 𝐀𝐭𝐭𝐞𝐧𝐝𝐚𝐧𝐜𝐞 𝐎𝐧 𝐓𝐡𝐢𝐬 𝐄𝐯𝐞𝐧𝐭 : ❤️**",
         color=embed_color
     )
+
     if event_banner:
         embed.set_image(url=event_banner)
     if vtc_avatar:
         embed.set_thumbnail(url=vtc_avatar)
 
+    embed.set_footer(text=footer_text)
+
     view = MarkAttendanceView(event_link=event_link)
-    message_content = role.mention if role else None
-    await channel.send(content=message_content, embed=embed, view=view)
 
+    # Mention role if selected
+    content = mention_role.mention if mention_role else None
+
+    await channel.send(content=content, embed=embed, view=view)
     await interaction.followup.send(f"✅ Attendance embed sent to {channel.mention}", ephemeral=True)
-
-
-# ---------- /accepted ----------
-@bot.tree.command(
-    name="accepted",
-    description="Send Accepted Invitation embed message to a VTC.",
-    guild=guild_obj
-)
-@app_commands.describe(
-    vtc_name="Name of the VTC",
-    user="User to mention",
-    slot_number="Slot number requested"
-)
-async def accepted(interaction: discord.Interaction, vtc_name: str, user: discord.User, slot_number: str):
-    embed = discord.Embed(
-        title=f"Invitation Accepted ✅",
-        description=(
-            f"Dear **{vtc_name}**, {user.mention} 🙏\n\n"
-            f"**🟢 Invitation has been Accepted.♥️**\n\n"
-            f"We sincerely thank you for inviting NepPath to participate in your event. We are pleased to confirm our attendance.\n\n"
-            f"**🛷 Slot Requested: {slot_number}** Kindly confirm our slot.\n\n"
-            f"<:calendar1:1398462389623586847>  **Your Event Marked Down Here: ⤵️**\n"
-            f"https://discord.com/channels/1395555672946643005/1396109795370471424\n\n"
-            f"**``Should you require any further information or assistance, please feel free to contact us.``**\n\n"
-            f"<a:red_arrow:1396694832121905295> *If done: Plz Kindly send a ticket close confirmation.*🔒\n\n"
-            f"Best regards,\nNepPath"
-        ),
-        color=discord.Color.green()
-    )
-    await interaction.channel.send(embed=embed)
-    await interaction.response.send_message("✅ Accepted invitation embed sent.", ephemeral=True)
 
 # ---------------- End of Part 3 ----------------
 # ---------------- bot.py — Part 4 ----------------
 
 # ---------- Bot Ready ----------
+
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user} ({bot.user.id})")
-
     try:
-        # Remove old global commands
-        global_commands = await bot.tree.fetch()
-        for cmd in global_commands:
-            await bot.tree.remove_command(cmd.name, type=cmd.type)
-        print("✅ Removed all old global commands.")
-
-        # Sync guild-specific commands
-        synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-        print(f"✅ Synced {len(synced)} guild commands in {GUILD_ID}.")
+        synced = await bot.tree.sync()
+        print(f"✅ Synced {len(synced)} commands globally.")
     except Exception as e:
         print("❌ Failed to sync commands:", e)
 
 # ---------- Run Bot ----------
+
 if not BOT_TOKEN:
     print("❌ BOT_TOKEN not set in environment. Please set BOT_TOKEN in your .env file.")
 else:
     bot.run(BOT_TOKEN)
 
-# ---------------- End of bot.py ----------------
+# ---------------- End of Part 4 ----------------
