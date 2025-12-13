@@ -1,6 +1,14 @@
 # .gitignore
+
+# Env file
 .env
+
+#python cache
 __pycache__/
+*.py[cod]
 *.pyc
 .DS_Store
 Thumbs.db
+
+# Cog cache only
+.cog/__pycache__/
