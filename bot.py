@@ -494,16 +494,20 @@ async def mark(interaction: discord.Interaction, event_link: str, channel: disco
 @app_commands.describe(
     vtc_name="VTC Name",
     user="User to mention",
-    slot_number="Approved slot number"
+    slot_number="Approved slot number",
+    color="Embed color name or hex (optional)"
 )
 async def accepted(
     interaction: discord.Interaction,
     vtc_name: str,
     user: discord.Member,
-    slot_number: str
+    slot_number: str,
+    color: str = "green"
 ):
     if not is_staff_member(interaction.user):
         return await interaction.response.send_message("❌ You are not staff.", ephemeral=True)
+
+    embed_color = parse_color(color) or discord.Color.green()
 
     embed = discord.Embed(
         title="🟢 Invitation Accepted",
@@ -512,18 +516,17 @@ async def accepted(
             f"🟢 𝙄𝙣𝙫𝙞𝙩𝙖𝙩𝙞𝙤𝙣 𝙝𝙖𝙨 𝙗𝙚𝙚𝙣 𝘼𝙘𝙘𝙚𝙥𝙩𝙚𝙙. ♥️\n\n"
             f"We sincerely thank you for inviting **NepPath** to participate in your event. "
             f"We are pleased to confirm our attendance and look forward to being part of this valuable opportunity.\n\n"
-            f"**🛷 Slot Requested: {slot_number}**  \n"
-            f"Kindly confirm our slot.\n\n"
+            f"**🛷 Slot Requested: {slot_number} Kindly confirm our slot.**\n\n"
             f"<:calendar1:1398462389623586847>  **Your Event Marked Down Here: ⤵️ **\n"
             f"https://discord.com/channels/1395555672946643005/1396109795370471424\n\n"
             f"Should you require any further information or assistance, please feel free to contact us.\n\n"
-            f"<a:red_arrow:1396694832121905295> "
-            f"If done: Plz Kindly send a ticket close confirmation. 🔒\n\n"
+            f"**<a:red_arrow:1396694832121905295> "
+            f"If done: Plz Kindly send a ticket close confirmation. 🔒**\n\n"
             f"---\n\n"
             f"Best regards,\n"
             f"**NepPath**"
         ),
-        color=discord.Color.green(),
+        color=embed_color,
         timestamp=datetime.utcnow()
     )
 
