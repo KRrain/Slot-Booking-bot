@@ -10,7 +10,6 @@ from datetime import datetime, timedelta, timezone
 import os
 from dotenv import load_dotenv
 from decline import setup_decline_command
-from decline_time import setup_decline_time_command
 
 # ---------------- CONFIG ----------------
 
@@ -563,17 +562,6 @@ async def on_ready():
         print(f"✅ Synced {len(synced)} commands globally.")
     except Exception as e:
         print("❌ Failed to sync commands:", e)
-
-@bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-
-    # register command
-    setup_decline_time_command(bot)
-
-    # sync commands
-    synced = await bot.tree.sync()
-    print(f"✅ Synced {len(synced)} commands")
 
 # ---------- Run Bot ----------
 
