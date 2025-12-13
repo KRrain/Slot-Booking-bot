@@ -65,7 +65,6 @@ user_submissions = {}  # {guild_id: {user_id: set(slots)}}
 
 # ---------- Helpers ----------
 def is_staff_member(member: discord.Member) -> bool:
-    """Return True if the member has any of the STAFF_ROLE_IDS."""
     try:
         return any(role.id in STAFF_ROLE_IDS for role in member.roles)
     except Exception:
@@ -180,6 +179,8 @@ class SlotBookingModal(discord.ui.Modal, title="Book Slot"):
             await interaction.response.send_message(
                 "❌ An internal error occurred while processing your booking.", ephemeral=True
             )
+
+# ---------------- End of Part 1 ----------------
 # ---------------- bot.py — Part 2 ----------------
 
 # ---------- Book Slot Button ----------
@@ -340,7 +341,6 @@ class ApproveDenyView(discord.ui.View):
 
 # ---------------- End of Part 2 ----------------
 # ---------------- bot.py — Part 3 ----------------
-
 guild_obj = discord.Object(id=GUILD_ID)
 
 # ---------- /create ----------
@@ -388,7 +388,8 @@ async def create(interaction: discord.Interaction, channel: discord.TextChannel,
 @app_commands.describe(
     event_link="TruckersMP event URL, e.g. https://truckersmp.com/events/12345",
     channel="Channel to post the embed",
-    role="Optional: Mention a role"
+    role="Optional: Mention a role",
+    color="Embed color name or hex (optional)"
 )
 async def mark(interaction: discord.Interaction, event_link: str, channel: discord.TextChannel, role: discord.Role = None, color: str = "blue"):
     if not is_staff_member(interaction.user):
@@ -478,9 +479,17 @@ async def accepted(interaction: discord.Interaction, vtc_name: str, user: discor
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user} ({bot.user.id})")
+
     try:
+        # Remove old global commands
+        global_commands = await bot.tree.fetch()
+        for cmd in global_commands:
+            await bot.tree.remove_command(cmd.name, type=cmd.type)
+        print("✅ Removed all old global commands.")
+
+        # Sync guild-specific commands
         synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-        print(f"✅ Synced {len(synced)} commands in guild {GUILD_ID}.")
+        print(f"✅ Synced {len(synced)} guild commands in {GUILD_ID}.")
     except Exception as e:
         print("❌ Failed to sync commands:", e)
 
