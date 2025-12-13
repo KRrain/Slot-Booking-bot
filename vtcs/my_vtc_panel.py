@@ -1,94 +1,68 @@
 import discord
-from discord.ext import commands
+from discord import app_commands
+from discord.ui import View, Button
 import aiohttp
 import os
 from datetime import datetime
+from dotenv import load_dotenv
 
-VTC_ID = int(os.getenv("MY_VTC_ID", "81586"))  # Set your VTC ID in .env
-NEPPATH_VTC_ID = int(os.getenv("NEPPATH_VTC_ID", "81586"))  # Optional if different
+load_dotenv()
+NEPPATH_VTC_ID = int(os.getenv("NEPPATH_VTC_ID"))
 
-def setup_my_vtc(bot: commands.Bot):
+class MyVTCView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(Button(label="NepPath Upcoming Event", style=discord.ButtonStyle.blurple, custom_id="neppath_event"))
 
-    class MyVTCView(discord.ui.View):
-        def __init__(self):
-            super().__init__(timeout=None)
+async def fetch_neppath_events():
+    async with aiohttp.ClientSession() as session:
+        url = f"https://api.truckersmp.com/v2/vtc/{NEPPATH_VTC_ID}/events/attending"
+        async with session.get(url) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json()
+            return data.get("response", [])
 
-        @discord.ui.button(label="Members", style=discord.ButtonStyle.green)
-        async def members_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"https://api.truckersmp.com/v2/vtc/{VTC_ID}/members") as resp:
-                    if resp.status != 200:
-                        return await interaction.response.send_message(f"❌ Failed to fetch members. HTTP {resp.status}", ephemeral=True)
-                    data = await resp.json()
-                    members = data.get("response", [])
+async def neppath_event_callback(interaction: discord.Interaction):
+    events = await fetch_neppath_events()
+    if not events:
+        return await interaction.response.send_message("❌ No upcoming NepPath events found.", ephemeral=True)
+    
+    first_event = events[0]
+    total_events = len(events)
+    
+    # Format date nicely
+    try:
+        dt = datetime.fromisoformat(first_event["startDateTime"].rstrip("Z"))
+        event_date = dt.strftime("%d %b %Y | %H:%M UTC")
+    except Exception:
+        event_date = "Unknown"
 
-            total_members = len(members)
-            banned_members = sum(1 for m in members if isinstance(m, dict) and m.get("banned", False))
+    embed = discord.Embed(
+        title=f"🛠 NepPath Upcoming Event",
+        description=(
+            f"**Event Name:** {first_event.get('name','Unknown')}\n"
+            f"**Date:** {event_date}\n"
+            f"**Game:** {first_event.get('game','Unknown')}\n"
+            f"**Event Type:** {first_event.get('eventType','Unknown')}\n"
+            f"**Server:** {first_event.get('server','Unknown')}\n"
+            f"**Attendees:** {first_event.get('attendees',0)}\n"
+            f"**Unsure:** {first_event.get('unsure',0)}\n"
+            f"**VTCs Attending:** {first_event.get('vtcs',0)}\n\n"
+            f"**Total NepPath Events:** {total_events}"
+        ),
+        color=discord.Color.from_rgb(255, 90, 32)  # #FF5A20
+    )
+    embed.set_footer(text="NepPath | Upcoming Event")
+    await interaction.response.send_message(embed=embed)
 
-            embed = discord.Embed(
-                title="My VTC Members",
-                description=f"**Total Members:** {total_members}\n**Banned Members:** {banned_members}",
-                color=discord.Color.from_rgb(255, 90, 32),
-                timestamp=datetime.utcnow()
-            )
-            embed.set_footer(text="NepPath | Timestamp")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-
-        @discord.ui.button(label="NepPath Events", style=discord.ButtonStyle.blurple)
-        async def neppath_events_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"https://api.truckersmp.com/v2/vtc/{NEPPATH_VTC_ID}/events/attending") as resp:
-                    if resp.status != 200:
-                        return await interaction.response.send_message(f"❌ Failed to fetch events. HTTP {resp.status}", ephemeral=True)
-                    data = await resp.json()
-                    events = data.get("response", [])
-
-            if not events:
-                await interaction.response.send_message("No upcoming NepPath events.", ephemeral=True)
-                return
-
-            first_event = events[0]
-            description = (
-                f"**Date:** {first_event.get('date')}\n"
-                f"**Game:** {first_event.get('game')}\n"
-                f"**Type:** {first_event.get('eventType')}\n"
-                f"**Server:** {first_event.get('server')}\n"
-                f"**Attending:** {first_event.get('attending')}\n"
-                f"**Unsure:** {first_event.get('unsure')}\n"
-                f"**VTCs Attending:** {first_event.get('vtcsAttending')}\n"
-            )
-
-            embed = discord.Embed(
-                title="NepPath Upcoming Event",
-                description=description + f"\n**Total Events:** {len(events)}",
-                color=discord.Color.from_rgb(255, 90, 32),
-                timestamp=datetime.utcnow()
-            )
-            embed.set_footer(text="NepPath | Timestamp")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    @bot.tree.command(name="my_vtc", description="Show My VTC Info with buttons")
-    async def my_vtc_command(interaction: discord.Interaction):
-        async with aiohttp.ClientSession() as session:
-            # Fetch VTC info
-            async with session.get(f"https://api.truckersmp.com/v2/vtc/{VTC_ID}") as resp:
-                if resp.status != 200:
-                    return await interaction.response.send_message(f"❌ Failed to fetch VTC info. HTTP {resp.status}", ephemeral=True)
-                vtc_data = await resp.json()
-                vtc_info = vtc_data.get("response", {})
-
-        embed = discord.Embed(
-            title=f"My VTC Info",
-            description=(
-                f"**Name:** {vtc_info.get('name')}\n"
-                f"**Tag:** {vtc_info.get('tag')}\n"
-                f"**Created:** {vtc_info.get('createDate')}\n"
-                f"**Recruitment:** {vtc_info.get('recruitmentState')}"
-            ),
-            color=discord.Color.from_rgb(255, 90, 32),
-            timestamp=datetime.utcnow()
-        )
-        embed.set_footer(text="NepPath | Timestamp")
-
-        view = MyVTCView()
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+def setup_my_vtc(bot):
+    view = MyVTCView()
+    
+    # Connect button callback
+    bot.add_view(view)
+    
+    # Find the button and attach callback
+    for item in view.children:
+        if item.custom_id == "neppath_event":
+            item.callback = neppath_event_callback
