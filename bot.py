@@ -11,6 +11,7 @@ import os
 from dotenv import load_dotenv
 from ac.decline import setup_decline_command
 from ac.review import setup_review_command
+from cogs.vtcinfo import setup_vtcinfo_command
 
 # ---------------- CONFIG ----------------
 
@@ -53,10 +54,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ---------- Setup modular commands ----------
 setup_review_command(bot, is_staff_member)
 setup_decline_command(bot, is_staff_member)
-
-# ---------- Load Cogs ----------
-async def load_cogs():
-    await bot.load_extension("cog.vtcinfo")   # Your VTCInfo Cog
+setup_vtcinfo_command(bot, is_staff_member
 
 # ---------- Global error handlers ----------
 
