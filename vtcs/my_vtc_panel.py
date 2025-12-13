@@ -5,6 +5,8 @@ from datetime import datetime
 
 VTC_ID = os.getenv("VTC_ID")  # Set your VTC ID in .env
 
+def setup_my_vtc(bot):
+
 class MyVTCView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
