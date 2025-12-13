@@ -56,7 +56,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 setup_review_command(bot, is_staff_member)
 setup_decline_command(bot, is_staff_member)
 setup_vtc_command(bot)
-setup_my_vtc_command(bot)
+setup_my_vtc_command(bot, is_staff_member)
 
 # ---------- Global error handlers ----------
 
