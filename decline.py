@@ -66,7 +66,7 @@ def setup_decline_command(bot, is_staff_member):
             color=discord.Color.from_rgb(255, 90, 32),  # #FF5A20
             timestamp=datetime.utcnow()
         )
-        embed.set_footer(text="<:NepPath:1395694322061410334> NepPath | Timestamp")
+        embed.set_footer(text="**NepPath | Timestamp**")
 
         await interaction.channel.send(embed=embed)
         await interaction.response.send_message("✅ Decline due to timing embed sent.", ephemeral=True)
