@@ -11,4 +11,4 @@ __pycache__/
 Thumbs.db
 
 # Cog cache only
-.cog/__pycache__/
+.cogs/__pycache__/
