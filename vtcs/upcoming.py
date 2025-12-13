@@ -1,8 +1,8 @@
 # vtcs/upcoming.py
 
 import discord
-from discord import app_commands
 from discord.ext import commands
+from discord import app_commands
 import aiohttp
 from datetime import datetime, timezone, timedelta
 
@@ -20,9 +20,15 @@ def setup_upcoming(bot: commands.Bot, get_user_vtc_name):
             user_id = interaction.user.id
             vtc_name = get_user_vtc_name(user_id)
             if not vtc_name:
-                return await interaction.response.send_message(
-                    "❌ You don’t have a VTC registered.", ephemeral=True
-                )
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "❌ You don’t have a VTC registered.", ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        "❌ You don’t have a VTC registered.", ephemeral=True
+                    )
+                return
 
             await interaction.response.defer(thinking=True, ephemeral=True)
 
@@ -32,12 +38,20 @@ def setup_upcoming(bot: commands.Bot, get_user_vtc_name):
                 async with aiohttp.ClientSession() as session:
                     async with session.get(api_url) as resp:
                         if resp.status != 200:
-                            return await interaction.followup.send(
-                                f"❌ TruckersMP API returned HTTP {resp.status}.", ephemeral=True
-                            )
+                            msg = f"❌ TruckersMP API returned HTTP {resp.status}."
+                            if not interaction.response.is_done():
+                                await interaction.response.send_message(msg, ephemeral=True)
+                            else:
+                                await interaction.followup.send(msg, ephemeral=True)
+                            return
                         data = await resp.json()
             except Exception as e:
-                return await interaction.followup.send(f"❌ Failed to fetch events: `{e}`", ephemeral=True)
+                msg = f"❌ Failed to fetch events: `{e}`"
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(msg, ephemeral=True)
+                else:
+                    await interaction.followup.send(msg, ephemeral=True)
+                return
 
             events = data.get("response", [])
 
@@ -50,9 +64,12 @@ def setup_upcoming(bot: commands.Bot, get_user_vtc_name):
                     filtered.append(evt)
 
             if not filtered:
-                return await interaction.followup.send(
-                    "❌ No upcoming events found for your VTC.", ephemeral=True
-                )
+                msg = "❌ No upcoming events found for your VTC."
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(msg, ephemeral=True)
+                else:
+                    await interaction.followup.send(msg, ephemeral=True)
+                return
 
             # Sort by start time
             filtered.sort(key=lambda e: e.get("meetupDateTime") or "")
@@ -63,7 +80,7 @@ def setup_upcoming(bot: commands.Bot, get_user_vtc_name):
                 color=discord.Color.blue()
             )
 
-            for evt in filtered[:10]:  # show max 10 events
+            for evt in filtered[:10]:  # Show max 10 events
                 name = evt.get("name")
                 event_link = f"https://truckersmp.com/events/{evt.get('id')}"
                 start_str = evt.get("meetupDateTime")
@@ -82,28 +99,30 @@ def setup_upcoming(bot: commands.Bot, get_user_vtc_name):
                 except Exception:
                     time_text = "Unknown time"
 
-                # Add field for this event
                 embed.add_field(
                     name=name,
                     value=f"**Start:** {time_text}\n[Event Link]({event_link})",
                     inline=False
                 )
 
-                # Set banner only for first event
+                # Set banner only once
                 if event_banner and embed.image.url is None:
                     embed.set_image(url=event_banner)
-                # Set creator avatar as thumbnail only once
                 if creator_avatar and embed.thumbnail.url is None:
                     embed.set_thumbnail(url=creator_avatar)
 
             embed.set_footer(text=f"Creator: {vtc_name}")
 
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            # Send embed safely
+            if not interaction.response.is_done():
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
-            # Catch any unexpected error
             print(f"[ERROR] /upcoming command: {e}")
+            msg = "❌ An unexpected error occurred."
             if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "❌ An unexpected error occurred.", ephemeral=True
-                )
+                await interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(msg, ephemeral=True)
